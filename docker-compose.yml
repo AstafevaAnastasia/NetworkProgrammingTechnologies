@@ -1,0 +1,35 @@
+services:
+  db:
+    build:
+      context: .
+      dockerfile: backend/databases/Dockerfile
+    environment:
+      POSTGRES_DB: mydatabase
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: mypassword
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  python:
+    container_name: python
+    image: python:3.12
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./:/var/www
+    tty: true
+    working_dir: /var/www
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      FLASK_APP: backend/src/run.py
+      FLASK_ENV: development
+      DATABASE_URL: postgresql://myuser:mypassword@db:5432/mydatabase
+    depends_on:
+      - db
+
+volumes:
+  pgdata:

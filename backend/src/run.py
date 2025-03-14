@@ -1,4 +1,10 @@
-from ..databases.models import app, db, add_user_to_database, get_user_data  # Импортируем всё необходимое
+import sys
+from pathlib import Path
+
+# Добавляем корневую директорию проекта в sys.path
+sys.path.append(str(Path(__file__).parent.parent.parent))
+
+from backend.databases.models import app, db, add_user_to_database, get_user_data  # Импортируем всё необходимое
 from backend.databases.models import Users  # Импортируем модель Users
 
 # Функция для создания базы данных

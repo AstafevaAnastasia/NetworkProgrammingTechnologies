@@ -1,4 +1,4 @@
-from backend.databases.models import app, db, add_user_to_database, get_user_data  # Импортируем всё необходимое
+from ..databases.models import app, db, add_user_to_database, get_user_data  # Импортируем всё необходимое
 from backend.databases.models import Users  # Импортируем модель Users
 
 # Функция для создания базы данных

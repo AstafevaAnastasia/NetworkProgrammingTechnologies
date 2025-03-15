@@ -3,7 +3,7 @@ from flask_sqlalchemy import SQLAlchemy
 from . import app, db
 
 class Users(db.Model):
-    __tablename__ = 'Users'
+    __tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(64), unique=True, nullable=False)
     email = db.Column(db.String(64), unique=True, nullable=False)
@@ -150,7 +150,7 @@ def add_weather_to_database(weather_data):
 
 class FavoriteCities(db.Model):
     __tablename__ = 'favorite_cities'
-    user_id = db.Column(db.Integer, db.ForeignKey('Users.id'), primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), primary_key=True)
     city_id = db.Column(db.Integer, db.ForeignKey('cities.id'), primary_key=True)
 
     def __repr__(self):

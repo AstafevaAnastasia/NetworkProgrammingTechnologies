@@ -15,8 +15,7 @@ class Users(db.Model):
 
 # Функция для получения данных от пользователя (пример)
 def get_user_data():
-    # Здесь должна быть ваша логика для получения данных от пользователя
-    # Например, чтение из веб-формы или Telegram-бота
+
     user_data = {
         'username': 'test_username',
         'email': 'test_email',
@@ -62,8 +61,7 @@ class Cities(db.Model):
         return f'<City {self.name}, {self.country}>'
 
 def get_city_data():
-    # Здесь должна быть ваша логика для получения данных о городе
-    # Например, чтение из веб-формы или API
+
     city_data = {
         'name': 'Moscow',  # Пример названия города
         'country': 'Russia',  # Пример страны
@@ -111,8 +109,7 @@ class WeatherData(db.Model):
         return f'<WeatherData {self.id} for city {self.city_id}>'
 
 def get_weather_data():
-    # Здесь должна быть ваша логика для получения данных о погоде
-    # Например, чтение из API или другого источника данных
+
     weather_data = {
         'city_id': 1,  # Пример ID города
         'temperature': 25.5,  # Пример температуры
@@ -160,8 +157,7 @@ class FavoriteCities(db.Model):
         return f'<FavoriteCity user_id={self.user_id}, city_id={self.city_id}>'
 
 def get_favorite_city_data():
-    # Здесь должна быть ваша логика для получения данных о любимом городе
-    # Например, чтение из веб-формы или API
+
     favorite_city_data = {
         'user_id': 1,  # Пример ID пользователя
         'city_id': 1,  # Пример ID города

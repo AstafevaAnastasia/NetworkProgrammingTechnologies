@@ -1,25 +1,46 @@
 import sys
 from pathlib import Path
+from flask import Flask
+from flask_migrate import Migrate
+from flask_sqlalchemy import SQLAlchemy
 
-# Добавляем корневую директорию проекта в sys.path
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
-from backend.databases.models import (app, db, add_user_to_database, get_user_data, get_weather_data, add_weather_to_database,
-                                      get_city_data, add_city_to_database,
-                                      add_favorite_city_to_database, initialize_data) # Импортируем всё необходимое
-from backend.databases.models import Users, WeatherData, Cities, FavoriteCities  # Импортируем модель Users
+db = SQLAlchemy()
+migrate = Migrate()
 
-def create_database():
+def create_app():
+    app = Flask(__name__)
+
+    # Конфигурация
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:appasonya2@localhost:5432/postgres'
+    app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+    # Инициализация расширений
+    db.init_app(app)
+    migrate.init_app(app, db)
+
+    # Регистрация Blueprint
+    from backend.src.databases.routes import bp
+    app.register_blueprint(bp)
+
     with app.app_context():
-        db.create_all()
-        initialize_data()
+        from backend.src.databases.models import Users, initialize_data
+        if not db.session.query(Users).first():
+            db.create_all()
+            initialize_data()
+            print("Тестовые данные успешно добавлены")
 
-@app.cli.command("init-db")
-def init_db_command():
-    """Initialize the database."""
-    create_database()
-    print("Database initialized.")
+    return app
+
+
+app = create_app()
 
 if __name__ == "__main__":
-    create_database()
+    with app.app_context():
+        from backend.src.databases.models import Users, initialize_data
+
+        if not db.session.query(Users).first():
+            db.create_all()
+            initialize_data()
     app.run(debug=True)

@@ -13,15 +13,13 @@ class Users(db.Model):
         return f'<User {self.username}>'
 
 
-# Функция для получения данных от пользователя (пример)
+# Функция для получения данных от пользователя
 def get_user_data():
-
-    user_data = {
+    return {
         'username': 'test_username',
         'email': 'test_email',
         'password_hash': 'some_unique_hash_string',
     }
-    return user_data
 
 
 # Функция для записи данных в базу данных
@@ -61,14 +59,12 @@ class Cities(db.Model):
         return f'<City {self.name}, {self.country}>'
 
 def get_city_data():
-
-    city_data = {
-        'name': 'Moscow',  # Пример названия города
-        'country': 'Russia',  # Пример страны
-        'latitude': 55.7558,  # Пример широты
-        'longitude': 37.6173,  # Пример долготы
+    return {
+        'name': 'Moscow',
+        'country': 'Russia',
+        'latitude': 55.7558,
+        'longitude': 37.6173,
     }
-    return city_data
 
 def add_city_to_database(city_data):
     with app.app_context():
@@ -109,16 +105,13 @@ class WeatherData(db.Model):
         return f'<WeatherData {self.id} for city {self.city_id}>'
 
 def get_weather_data():
-
-    weather_data = {
-        'city_id': 1,  # Пример ID города
-        'temperature': 25.5,  # Пример температуры
-        'humidity': 60,  # Пример влажности
-        'wind_speed': 5.3,  # Пример скорости ветра
-        'description': 'Sunny',  # Пример описания погоды
-        'timestamp': '2023-10-01 12:00:00',  # Пример времени получения данных
+    return {
+        'temperature': 25.5,
+        'humidity': 60,
+        'wind_speed': 5.3,
+        'description': 'Sunny',
+        'timestamp': '2023-10-01 12:00:00',
     }
-    return weather_data
 
 def add_weather_to_database(weather_data):
     with app.app_context():
@@ -156,34 +149,81 @@ class FavoriteCities(db.Model):
     def __repr__(self):
         return f'<FavoriteCity user_id={self.user_id}, city_id={self.city_id}>'
 
-def get_favorite_city_data():
-
-    favorite_city_data = {
-        'user_id': 1,  # Пример ID пользователя
-        'city_id': 1,  # Пример ID города
-    }
-    return favorite_city_data
-
-def add_favorite_city_to_database(favorite_city_data):
+def add_favorite_city_to_database(favorite_data):
     with app.app_context():
-        # Проверяем, существует ли уже такая запись
-        existing_favorite = FavoriteCities.query.filter(
-            (FavoriteCities.user_id == favorite_city_data['user_id']) &
-            (FavoriteCities.city_id == favorite_city_data['city_id'])
+        existing = FavoriteCities.query.filter_by(
+            user_id=favorite_data['user_id'],
+            city_id=favorite_data['city_id']
         ).first()
 
-        if existing_favorite:
-            print(f"Город с ID {favorite_city_data['city_id']} уже добавлен в избранное для пользователя с ID {favorite_city_data['user_id']}.")
+        if existing:
+            print(f"Город уже в избранном у пользователя")
             return
 
-        # Создаем новую запись о любимом городе
-        new_favorite = FavoriteCities(
-            user_id=favorite_city_data['user_id'],
-            city_id=favorite_city_data['city_id'],
+        new_fav = FavoriteCities(
+            user_id=favorite_data['user_id'],
+            city_id=favorite_data['city_id']
         )
+        db.session.add(new_fav)
+        try:
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            print(f"Ошибка при добавлении: {e}")
+            raise
 
-        # Добавляем запись в базу данных
-        db.session.add(new_favorite)
+def initialize_data():
+    # Очищаем все таблицы (опционально, только для тестов!)
+    with app.app_context():
         db.session.commit()
+        db.drop_all()
+        db.create_all()
 
-        print(f"Город с ID {favorite_city_data['city_id']} успешно добавлен в избранное для пользователя с ID {favorite_city_data['user_id']}.")
+    # Добавляем пользователя
+    user_data = {
+        'username': 'test_username',
+        'email': 'test_email',
+        'password_hash': 'some_unique_hash_string',
+    }
+    add_user_to_database(user_data)
+
+    # Получаем ID добавленного пользователя
+    with app.app_context():
+        user = Users.query.filter_by(username=user_data['username']).first()
+        if not user:
+            raise ValueError("Не удалось добавить пользователя")
+        user_id = user.id
+
+    # Добавляем город
+    city_data = {
+        'name': 'Moscow',
+        'country': 'Russia',
+        'latitude': 55.7558,
+        'longitude': 37.6173,
+    }
+    add_city_to_database(city_data)
+
+    # Получаем ID добавленного города
+    with app.app_context():
+        city = Cities.query.filter_by(name=city_data['name']).first()
+        if not city:
+            raise ValueError("Не удалось добавить город")
+        city_id = city.id
+
+    # Добавляем погодные данные
+    weather_data = {
+        'city_id': city_id,
+        'temperature': 25.5,
+        'humidity': 60,
+        'wind_speed': 5.3,
+        'description': 'Sunny',
+        'timestamp': '2023-10-01 12:00:00',
+    }
+    add_weather_to_database(weather_data)
+
+    # Добавляем избранный город
+    favorite_data = {
+        'user_id': user_id,
+        'city_id': city_id
+    }
+    add_favorite_city_to_database(favorite_data)

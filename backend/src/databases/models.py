@@ -41,10 +41,7 @@ class FavoriteCities(db.Model):
 
 def create_test_user():
     """Создает тестового пользователя"""
-    if Users.query.filter_by(username='test_user').first():
-        return None  # Пользователь уже существует
-
-    user = Users(username='test_user1', email='test@example1.com')
+    user = Users(username='test_user2', email='test2@example.com')
     user.set_password('password123')
     db.session.add(user)
     db.session.flush()

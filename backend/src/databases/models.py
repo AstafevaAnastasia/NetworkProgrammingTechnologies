@@ -39,16 +39,20 @@ class FavoriteCities(db.Model):
     city_id = db.Column(db.Integer, db.ForeignKey('cities.id'), primary_key=True)
 
 
-def initialize_data():
-    """Инициализация тестовых данных"""
-    # Проверяем, есть ли уже данные
-    if Users.query.first():
-        return
+def create_test_user():
+    """Создает тестового пользователя"""
+    if Users.query.filter_by(username='test_user').first():
+        return None  # Пользователь уже существует
 
-    # Создаем тестовые данные
-    user = Users(username='test_user', email='test@example.com')
+    user = Users(username='test_user1', email='test@example1.com')
     user.set_password('password123')
     db.session.add(user)
+    db.session.flush()
+    return user
+
+
+def create_test_city():
+    """Создает тестовый город"""
 
     city = Cities(
         name='Moscow',
@@ -57,11 +61,14 @@ def initialize_data():
         longitude=37.6173
     )
     db.session.add(city)
-    db.session.commit()
+    db.session.flush()
+    return city
 
-    # Добавляем связанные данные
+
+def create_weather_data(city_id):
+    """Создает тестовые данные о погоде"""
     weather = WeatherData(
-        city_id=city.id,
+        city_id=city_id,
         temperature=25.5,
         humidity=60,
         wind_speed=5.3,
@@ -69,11 +76,33 @@ def initialize_data():
         timestamp='2023-10-01 12:00:00'
     )
     db.session.add(weather)
+    return weather
 
-    favorite = FavoriteCities(
-        user_id=user.id,
-        city_id=city.id
-    )
+
+def create_favorite_city(user_id, city_id):
+    """Добавляет город в избранное"""
+
+    favorite = FavoriteCities(user_id=user_id, city_id=city_id)
     db.session.add(favorite)
+    return favorite
 
-    db.session.commit()
+
+def initialize_data():
+    """Инициализирует тестовые данные"""
+    try:
+        # Создаем пользователя (если его нет)
+        user = create_test_user()
+        city = create_test_city()
+
+        if user and city:
+            create_weather_data(city.id)
+            create_favorite_city(user.id, city.id)
+            db.session.commit()
+            print("Тестовые данные успешно созданы")
+        else:
+            print("Тестовые данные уже существуют")
+
+    except Exception as e:
+        db.session.rollback()
+        print(f"Ошибка при создании тестовых данных: {str(e)}")
+        raise

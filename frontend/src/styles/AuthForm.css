@@ -10,3 +10,15 @@
   border: 1px solid #ccc;
   border-radius: 4px;
 }
+.auth-toggle {
+  background: none;
+  border: none;
+  color: #0066cc;
+  cursor: pointer;
+  margin-top: 15px;
+  text-decoration: underline;
+}
+
+.auth-toggle:hover {
+  color: #004499;
+}

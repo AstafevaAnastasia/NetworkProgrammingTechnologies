@@ -1,32 +1,59 @@
 import React, { useState } from 'react';
 import '../styles/AuthForm.css';
 
-function AuthForm({ onSubmit }) {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+function AuthForm({ isLogin, onSubmit }) {
+  const [formData, setFormData] = useState({
+    username: '',
+    email: '',
+    password: ''
+  });
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    onSubmit(email, password);
+    if (isLogin) {
+      onSubmit({ email: formData.email, password: formData.password });
+    } else {
+      onSubmit({ ...formData });
+    }
   };
 
   return (
     <form onSubmit={handleSubmit} className="auth-form">
+      {!isLogin && (
+        <input
+          type="text"
+          name="username"
+          placeholder="Имя пользователя"
+          value={formData.username}
+          onChange={handleChange}
+          required
+        />
+      )}
       <input
         type="email"
+        name="email"
         placeholder="Email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
+        value={formData.email}
+        onChange={handleChange}
         required
       />
       <input
         type="password"
+        name="password"
         placeholder="Пароль"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
+        value={formData.password}
+        onChange={handleChange}
         required
+        minLength="6"
       />
-      <button type="submit">Войти</button>
+      <button type="submit">
+        {isLogin ? 'Войти' : 'Зарегистрироваться'}
+      </button>
     </form>
   );
 }

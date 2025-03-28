@@ -1,7 +1,8 @@
 from flask import current_app, jsonify, request
 from . import bp  # Импортируем Blueprint из текущего модуля
 from backend.src.run import db
-from backend.src.databases.models import Users, Cities, WeatherData, FavoriteCities
+from backend.src.databases.models import Users, Cities, WeatherData, FavoriteCities, get_weather_for_city, \
+    create_city_from_weather, get_forecast_for_city, create_test_user
 import requests
 
 # Все роуты должны использовать @bp.route вместо @app.route
@@ -13,6 +14,43 @@ def home():
 def get_users():
     users = Users.query.all()
     return jsonify([{'id': u.id, 'username': u.username} for u in users])
+
+
+@bp.route('/users', methods=['POST'])
+def create_new_user():
+    # Получаем данные из JSON запроса
+    data = request.get_json()
+
+    # Проверяем обязательные поля
+    required_fields = ['email', 'password', 'username']
+    if not data or not all(key in data for key in required_fields):
+        return jsonify({
+            "error": "Необходимо указать все обязательные поля",
+            "required_fields": required_fields
+        }), 400
+
+    email = data['email']
+    password = data['password']  # Пароль передается как есть
+    username = data['username']
+
+    # Дополнительная валидация
+    if len(password) < 8:
+        return jsonify({"error": "Пароль должен содержать минимум 8 символов"}), 400
+
+    # Создаем пользователя
+    user = create_test_user(email=email, password=password, username=username)
+
+    if not user:  # Если пользователь не создан
+        return jsonify({"error": "Пользователь с таким email или username уже существует"}), 400
+
+    return jsonify({
+        "message": "Пользователь успешно создан",
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email
+        }
+    }), 201
 
 # Конфигурация для внешнего API погоды
 WEATHER_API_KEY = 'your_weather_api_key'
@@ -122,3 +160,54 @@ def get_favorite_cities(user_id):
             })
 
     return jsonify(cities), 200
+
+
+@bp.route('/weather/current', methods=['GET'])
+def get_current_weather():
+    city = request.args.get('city')
+    if not city:
+        return jsonify({"error": "City parameter is required"}), 400
+
+    weather = get_weather_for_city(city)
+    if not weather:
+        return jsonify({"error": "Failed to fetch weather data"}), 500
+
+    return jsonify({
+        "city": weather.city.name,
+        "temperature": weather.temperature,
+        "humidity": weather.humidity,
+        "wind_speed": weather.wind_speed,
+        "description": weather.description,
+        "timestamp": weather.timestamp.isoformat() if weather.timestamp else None
+    })
+
+
+@bp.route('/weather/forecast', methods=['GET'])
+def get_weather_forecast():
+    city = request.args.get('city')
+    days = request.args.get('days', default=5, type=int)
+
+    if not city:
+        return jsonify({"error": "City parameter is required"}), 400
+
+    forecast = get_forecast_for_city(city, days)
+    if not forecast:
+        return jsonify({"error": "Failed to fetch forecast data"}), 500
+
+    return jsonify(forecast)
+
+
+@bp.route('/weather/save', methods=['POST'])
+def save_weather_data():
+    city = request.args.get('city')
+    if not city:
+        return jsonify({"error": "City parameter is required"}), 400
+
+    weather = create_city_from_weather(city)
+    if not weather:
+        return jsonify({"error": "Failed to save weather data"}), 500
+
+    return jsonify({
+        "message": "Weather data saved successfully",
+        "weather_id": weather.id
+    }), 201

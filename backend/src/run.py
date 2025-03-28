@@ -27,8 +27,9 @@ def create_app():
     with app.app_context():
         from backend.src.databases.models import Users, initialize_data
         db.create_all()
-        initialize_data()
-        print("Тестовые данные успешно добавлены")
+        if not Users.query.first():
+            initialize_data()
+            print("Тестовые данные успешно добавлены")
 
     return app
 
@@ -39,6 +40,6 @@ if __name__ == "__main__":
     with app.app_context():
         from backend.src.databases.models import Users, initialize_data
         db.create_all()
-        #if not db.session.query(Users).first():
-        initialize_data()
+        # if not Users.query.first():
+        #     initialize_data()
     app.run(debug=True)

@@ -10,8 +10,8 @@ class Users(db.Model):
     email = db.Column(db.String(64), unique=True, nullable=False)
     password_hash = db.Column(db.String(256), nullable=False)
 
-    def set_password(self, password):
-        self.password_hash = generate_password_hash(password)
+    #def set_password(self, password): ПОКА ЧТО НЕ БУДЕТ ХЕШИРОВАТЬ
+    #    self.password_hash = generate_password_hash(password)
 
 
 class Cities(db.Model):
@@ -40,31 +40,33 @@ class FavoriteCities(db.Model):
     city_id = db.Column(db.Integer, db.ForeignKey('cities.id'), primary_key=True)
 
 
-def create_test_user(username=None, email=None, password=None):
-    """Создает тестового пользователя с возможностью ручного ввода данных"""
-    if not username:
-        username = input("Введите имя пользователя: ")
-    if not email:
-        email = input("Введите email: ")
-    if not password:
-        password = input("Введите пароль: ")
+def create_test_user(email, password, username):
+    """Создает нового пользователя без хеширования пароля"""
+    try:
+        # Проверяем, существует ли пользователь
+        existing_user = Users.query.filter(
+            (Users.email == email) | (Users.username == username)
+        ).first()
 
-    # Проверяем, существует ли уже пользователь с таким именем или email
-    existing_user = Users.query.filter(
-        (Users.username == username) | (Users.email == email)
-    ).first()
+        if existing_user:
+            return None  # Просто возвращаем None при ошибке
 
-    if existing_user:
-        print(f"Пользователь с именем '{username}' или email '{email}' уже существует")
-        return existing_user
+        # Создаем пользователя (пароль сохраняется как есть)
+        new_user = Users(
+            email=email,
+            username=username,
+            password_hash=password  # Записываем пароль напрямую
+        )
 
-    user = Users(username=username, email=email)
-    user.set_password(password)
-    db.session.add(user)
-    db.session.commit()
+        db.session.add(new_user)
+        db.session.commit()
 
-    print(f"Пользователь '{username}' успешно создан с ID {user.id}")
-    return user
+        return new_user  # Возвращаем только объект пользователя
+
+    except Exception as e:
+        db.session.rollback()
+        print(f"Ошибка при создании пользователя: {str(e)}")
+        return None
 
 
 def create_test_city():

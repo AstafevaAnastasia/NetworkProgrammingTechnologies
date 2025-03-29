@@ -40,8 +40,14 @@ class FavoriteCities(db.Model):
     city_id = db.Column(db.Integer, db.ForeignKey('cities.id'), primary_key=True)
 
 
-def create_test_user(email, password, username):
+def create_test_user(email=None, password=None, username=None):
     """Создает нового пользователя без хеширования пароля"""
+    if not username:
+        username = input("Введите имя пользователя: ")
+    if not email:
+        email = input("Введите email: ")
+    if not password:
+        password = input("Введите пароль: ")
     try:
         # Проверяем, существует ли пользователь
         existing_user = Users.query.filter(

@@ -10,11 +10,41 @@ import requests
 def home():
     return "Welcome to the Home Page!"
 
-@bp.route('/users')
-def get_users():
-    users = Users.query.all()
-    return jsonify([{'id': u.id, 'username': u.username} for u in users])
 
+@bp.route('/users/<int:user_id>', methods=['GET'])
+def get_user(user_id):
+    """Получение информации о конкретном пользователе по ID"""
+    user = Users.query.get(user_id)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    return jsonify({
+        "id": user.id,
+        "username": user.username,
+        "email": user.email
+    }), 200
+
+
+@bp.route('/users/search', methods=['GET'])
+def search_users():
+    """Поиск пользователей по имени или email"""
+    username = request.args.get('username')
+    email = request.args.get('email')
+
+    query = Users.query
+
+    if username:
+        query = query.filter(Users.username.ilike(f'%{username}%'))
+    if email:
+        query = query.filter(Users.email.ilike(f'%{email}%'))
+
+    users = query.all()
+
+    return jsonify([{
+        "id": u.id,
+        "username": u.username,
+        "email": u.email
+    } for u in users]), 200
 
 @bp.route('/users', methods=['POST'])
 def create_new_user():

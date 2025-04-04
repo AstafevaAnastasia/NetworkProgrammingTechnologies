@@ -10,6 +10,70 @@ import requests
 def home():
     return "Welcome to the Home Page!"
 
+@bp.route('/users/<int:user_id>', methods=['PUT'])
+def update_user(user_id):
+    """Обновление данных пользователя"""
+    # Получаем данные из запроса
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    # Находим пользователя
+    user = Users.query.get(user_id)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    try:
+        # Обновляем поля, если они предоставлены
+        updated_fields = []
+
+        if 'username' in data:
+            # Проверяем, не занято ли новое имя пользователя
+            existing_user = Users.query.filter(
+                Users.username == data['username'],
+                Users.id != user_id
+            ).first()
+            if existing_user:
+                return jsonify({"error": "Username already taken"}), 400
+            user.username = data['username']
+            updated_fields.append('username')
+
+        if 'email' in data:
+            # Проверяем, не занят ли новый email
+            existing_user = Users.query.filter(
+                Users.email == data['email'],
+                Users.id != user_id
+            ).first()
+            if existing_user:
+                return jsonify({"error": "Email already in use"}), 400
+            user.email = data['email']
+            updated_fields.append('email')
+
+        if 'password' in data:
+            # В текущей реализации просто сохраняем пароль как есть
+            if len(data['password']) < 8:
+                return jsonify({"error": "Password must be at least 8 characters"}), 400
+            user.password_hash = data['password']
+            updated_fields.append('password')
+
+        if not updated_fields:
+            return jsonify({"error": "No valid fields to update"}), 400
+
+        db.session.commit()
+
+        return jsonify({
+            "message": "User updated successfully",
+            "updated_fields": updated_fields,
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email
+            }
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Failed to update user: {str(e)}"}), 500
 
 @bp.route('/users/<int:user_id>', methods=['GET'])
 def get_user(user_id):

@@ -5,6 +5,10 @@ from backend.src.databases.models import Users, Cities, WeatherData, FavoriteCit
     create_city_from_weather, get_forecast_for_city, create_test_user
 import requests
 
+# Конфигурация для внешнего API погоды
+WEATHER_API_KEY = 'your_weather_api_key'
+WEATHER_API_URL = 'http://api.weatherapi.com/v1'
+
 # Все роуты должны использовать @bp.route вместо @app.route
 @bp.route('/')
 def home():
@@ -175,9 +179,55 @@ def create_new_user():
         }
     }), 201
 
-# Конфигурация для внешнего API погоды
-WEATHER_API_KEY = 'your_weather_api_key'
-WEATHER_API_URL = 'http://api.weatherapi.com/v1'
+
+@bp.route('/weather/<city_name>', methods=['GET'])
+def get_city_weather(city_name):
+    """Получение текущей погоды в указанном городе"""
+    try:
+        # Получаем данные о погоде с явным join к таблице Cities
+        weather = WeatherData.query.join(Cities) \
+            .filter(Cities.name.ilike(city_name)) \
+            .order_by(WeatherData.timestamp.desc()) \
+            .first()
+
+        if not weather:
+            # Если данных нет в БД, пытаемся получить свежие
+            from backend.src.databases.weather_service import WeatherService
+            WeatherService.save_weather_data(city_name)
+            weather = WeatherData.query.join(Cities) \
+                .filter(Cities.name.ilike(city_name)) \
+                .order_by(WeatherData.timestamp.desc()) \
+                .first()
+            if not weather:
+                return jsonify({"error": "Weather data not found for this city"}), 404
+
+        # Получаем связанный город
+        city = Cities.query.get(weather.city_id)
+
+        # Формируем ответ
+        weather_data = {
+            "city": city.name,
+            "country": city.country,
+            "temperature": weather.temperature,
+            "humidity": weather.humidity,
+            "wind_speed": weather.wind_speed,
+            "description": weather.description,
+            "timestamp": weather.timestamp.isoformat() if weather.timestamp else None,
+            "coordinates": {
+                "latitude": city.latitude,
+                "longitude": city.longitude
+            }
+        }
+
+        return jsonify(weather_data), 200
+
+    except Exception as e:
+        return jsonify({"error": f"Failed to get weather data: {str(e)}"}), 500
+
+
+
+
+
 
 @bp.route('/weather', methods=['GET'])
 def get_weather():

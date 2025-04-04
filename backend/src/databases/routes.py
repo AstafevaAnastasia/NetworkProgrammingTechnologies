@@ -10,6 +10,35 @@ import requests
 def home():
     return "Welcome to the Home Page!"
 
+@bp.route('/users/<int:user_id>', methods=['DELETE'])
+def delete_user(user_id):
+    """Удаление пользователя по ID"""
+    try:
+        # Находим пользователя
+        user = Users.query.get(user_id)
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+
+        # Удаляем связанные записи в favorite_cities (чтобы избежать ошибок внешнего ключа)
+        FavoriteCities.query.filter_by(user_id=user_id).delete()
+
+        # Удаляем самого пользователя
+        db.session.delete(user)
+        db.session.commit()
+
+        return jsonify({
+            "message": "User deleted successfully",
+            "deleted_user": {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email
+            }
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Failed to delete user: {str(e)}"}), 500
+
 @bp.route('/users/<int:user_id>', methods=['PUT'])
 def update_user(user_id):
     """Обновление данных пользователя"""

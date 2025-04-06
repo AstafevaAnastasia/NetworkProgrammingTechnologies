@@ -4,6 +4,9 @@ from backend.src.run import db
 from backend.src.databases.models import Users, Cities, WeatherData, FavoriteCities, get_weather_for_city, \
     create_city_from_weather, get_forecast_for_city, create_test_user
 import requests
+from datetime import datetime, timedelta, timezone
+
+from .weather_service import WeatherService
 
 # Конфигурация для внешнего API погоды
 WEATHER_API_KEY = 'your_weather_api_key'
@@ -405,8 +408,196 @@ def add_favorite_city_by_name(user_id):
             "details": str(e)
         }), 500
 
+@bp.route('/users/<int:user_id>/favorites/<string:city_name>', methods=['DELETE'])
+def remove_favorite_city(user_id, city_name):
+    """Удаление города из избранного у конкретного пользователя по названию города"""
+    try:
+        # Проверяем существование пользователя
+        user = Users.query.get(user_id)
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+
+        # Ищем город по названию (регистронезависимо)
+        city = Cities.query.filter(Cities.name.ilike(city_name)).first()
+        if not city:
+            return jsonify({"error": f"City '{city_name}' not found"}), 404
+
+        # Ищем запись в избранном
+        favorite = FavoriteCities.query.filter_by(
+            user_id=user_id,
+            city_id=city.id
+        ).first()
+
+        if not favorite:
+            return jsonify({
+                "error": "City not in user's favorites",
+                "details": {
+                    "user_id": user_id,
+                    "city_id": city.id,
+                    "city_name": city.name
+                }
+            }), 404
+
+        # Удаляем из избранного
+        db.session.delete(favorite)
+        db.session.commit()
+
+        return jsonify({
+            "message": "City removed from favorites successfully",
+            "removed_favorite": {
+                "user_id": user_id,
+                "city": {
+                    "id": city.id,
+                    "name": city.name,
+                    "country": city.country
+                }
+            }
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            "error": "Failed to remove favorite city",
+            "details": str(e)
+        }), 500
 
 
+@bp.route('/weather/update_hourly/<city_name>', methods=['POST'])
+def update_hourly_weather(city_name):
+    """
+    Добавляет почасовые данные о погоде для указанного города:
+    - За предыдущие 12 часов
+    - Текущий час
+    - Следующие 12 часов
+    Всего 25 записей
+    """
+    try:
+        # 1. Получаем прогноз на 24 часа (12 прошедших + 12 будущих + текущий)
+        forecast = WeatherService.get_24h_forecast(city_name)
+        if not forecast:
+            return jsonify({"error": f"Failed to get 24-hour forecast for {city_name}"}), 500
+
+        # 2. Проверяем/создаем город в БД
+        city = Cities.query.filter(Cities.name.ilike(city_name)).first()
+        if not city:
+            # Создаем новый город с координатами из первого прогноза
+            city = Cities(
+                name=city_name,
+                country=forecast[0]['raw_data']['sys']['country'],
+                latitude=forecast[0]['raw_data']['coord']['lat'],
+                longitude=forecast[0]['raw_data']['coord']['lon']
+            )
+            db.session.add(city)
+            db.session.flush()
+
+        # 3. Добавляем все записи о погоде
+        added_records = []
+        for weather_data in forecast:
+            # Проверяем, нет ли уже такой записи
+            existing = WeatherData.query.filter_by(
+                city_id=city.id,
+                timestamp=weather_data['timestamp']
+            ).first()
+
+            if not existing:
+                weather_record = WeatherData(
+                    city_id=city.id,
+                    temperature=weather_data['temperature'],
+                    humidity=weather_data['humidity'],
+                    wind_speed=weather_data['wind_speed'],
+                    description=weather_data['description'],
+                    timestamp=weather_data['timestamp']
+                )
+                db.session.add(weather_record)
+                added_records.append({
+                    'timestamp': weather_data['timestamp'].isoformat(),
+                    'temperature': weather_data['temperature']
+                })
+
+        db.session.commit()
+
+        return jsonify({
+            "message": f"Hourly weather data updated for {city_name}",
+            "city_id": city.id,
+            "added_records": added_records,
+            "total_added": len(added_records),
+            "time_range": {
+                "start": forecast[0]['timestamp'].isoformat(),
+                "end": forecast[-1]['timestamp'].isoformat()
+            }
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            "error": "Failed to update hourly weather data",
+            "details": str(e)
+        }), 500
+
+@bp.route('/weather/cleanup', methods=['DELETE'])
+def cleanup_old_weather_data():
+    """
+    Удаляет устаревшие записи о погоде:
+    - Старше 7 дней для всех городов
+    - Оставляет минимум 24 записи для каждого города
+    Использует datetime.now(timezone.utc) вместо устаревшего utcnow()
+    """
+    try:
+        # Определяем временную границу (7 дней назад)
+        seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
+
+        # Сначала находим города, у которых больше 24 записей
+        cities_to_clean = db.session.query(
+            WeatherData.city_id
+        ).group_by(
+            WeatherData.city_id
+        ).having(
+            db.func.count(WeatherData.id) > 24
+        ).all()
+
+        total_deleted = 0
+
+        # Для каждого города удаляем старые записи, оставляя минимум 24 самых свежих
+        for city in cities_to_clean:
+            city_id = city[0]
+
+            # Находим ID 24 самых свежих записей
+            latest_ids = [
+                w[0] for w in db.session.query(
+                    WeatherData.id
+                ).filter(
+                    WeatherData.city_id == city_id
+                ).order_by(
+                    WeatherData.timestamp.desc()
+                ).limit(24).all()
+            ]
+
+            # Удаляем записи старше 7 дней, кроме 24 последних
+            deleted = WeatherData.query.filter(
+                WeatherData.city_id == city_id,
+                WeatherData.timestamp < seven_days_ago,
+                ~WeatherData.id.in_(latest_ids)
+            ).delete(synchronize_session=False)
+
+            total_deleted += deleted
+
+        db.session.commit()
+
+        return jsonify({
+            "message": "Old weather data cleanup completed",
+            "details": {
+                "cities_processed": len(cities_to_clean),
+                "records_deleted": total_deleted,
+                "cutoff_date": seven_days_ago.isoformat()
+            }
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            "error": "Failed to cleanup old weather data",
+            "details": str(e)
+        }), 500
 
 # @bp.route('/weather', methods=['GET'])
 # def get_weather():

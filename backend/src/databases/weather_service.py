@@ -82,3 +82,22 @@ class WeatherService:
         db.session.commit()
 
         return weather
+
+    @classmethod
+    def get_24h_forecast(cls, city_name):
+        """Получает почасовой прогноз на 24 часа (включая текущий)"""
+        url = f"{cls.BASE_URL}/forecast?q={city_name}&appid={cls.API_KEY}&units=metric&cnt=25"
+        response = requests.get(url)
+
+        if response.status_code != 200:
+            return None
+
+        forecast_data = response.json()['list']
+
+        # Обрабатываем данные для 25 периодов (24 часа + текущий)
+        forecast = []
+        for item in forecast_data[:25]:  # Берем только 25 записей
+            parsed = cls._parse_weather_data(item)
+            forecast.append(parsed)
+
+        return forecast

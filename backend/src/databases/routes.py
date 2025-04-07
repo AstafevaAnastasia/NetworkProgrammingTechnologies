@@ -182,86 +182,6 @@ def create_new_user():
         }
     }), 201
 
-@bp.route('/weather/<city_name>', methods=['GET'])
-def get_city_weather_history(city_name):
-    """
-    Получение ВСЕХ исторических записей о погоде в указанном городе
-    Возвращает:
-    - Информацию о городе
-    - Массив всех доступных записей о погоде
-    - Статистику по температуре
-    """
-    try:
-        # Ищем город (регистронезависимо)
-        city = Cities.query.filter(Cities.name.ilike(city_name)).first()
-
-        if not city:
-            # Попробуем создать город через WeatherService
-            from backend.src.databases.weather_service import WeatherService
-            weather = WeatherService.save_weather_data(city_name)
-            if not weather:
-                return jsonify({"error": f"City '{city_name}' not found"}), 404
-            city = weather.city
-
-        # Получаем ВСЕ записи о погоде для этого города
-        weather_records = WeatherData.query.filter_by(
-            city_id=city.id
-        ).order_by(
-            WeatherData.timestamp.asc()  # Сортировка от старых к новым
-        ).all()
-
-        if not weather_records:
-            return jsonify({
-                "message": f"No weather data available for {city.name}",
-                "city_info": {
-                    "id": city.id,
-                    "name": city.name,
-                    "country": city.country
-                }
-            }), 200
-
-        # Рассчитываем статистику
-        temperatures = [r.temperature for r in weather_records]
-        stats = {
-            "min_temp": min(temperatures),
-            "max_temp": max(temperatures),
-            "avg_temp": round(sum(temperatures) / len(temperatures), 1),
-            "records_count": len(weather_records),
-            "first_record": weather_records[0].timestamp.isoformat(),
-            "last_record": weather_records[-1].timestamp.isoformat()
-        }
-
-        # Формируем ответ
-        response = {
-            "city_info": {
-                "id": city.id,
-                "name": city.name,
-                "country": city.country,
-                "coordinates": {
-                    "latitude": city.latitude,
-                    "longitude": city.longitude
-                }
-            },
-            "weather_data": [
-                {
-                    "timestamp": record.timestamp.isoformat(),
-                    "temperature": record.temperature,
-                    "humidity": record.humidity,
-                    "wind_speed": record.wind_speed,
-                    "description": record.description
-                } for record in weather_records
-            ],
-            "statistics": stats
-        }
-
-        return jsonify(response), 200
-
-    except Exception as e:
-        return jsonify({
-            "error": "Failed to get weather history",
-            "details": str(e)
-        }), 500
-
 @bp.route('/cities', methods=['POST'])
 def add_city():
     """Добавление нового города в базу данных"""
@@ -565,6 +485,86 @@ def update_hourly_weather(city_name):
         db.session.rollback()
         return jsonify({
             "error": "Failed to update hourly weather data",
+            "details": str(e)
+        }), 500
+
+@bp.route('/weather/<city_name>', methods=['GET'])
+def get_city_weather_history(city_name):
+    """
+    Получение ВСЕХ исторических записей о погоде в указанном городе
+    Возвращает:
+    - Информацию о городе
+    - Массив всех доступных записей о погоде
+    - Статистику по температуре
+    """
+    try:
+        # Ищем город (регистронезависимо)
+        city = Cities.query.filter(Cities.name.ilike(city_name)).first()
+
+        if not city:
+            # Попробуем создать город через WeatherService
+            from backend.src.databases.weather_service import WeatherService
+            weather = WeatherService.save_weather_data(city_name)
+            if not weather:
+                return jsonify({"error": f"City '{city_name}' not found"}), 404
+            city = weather.city
+
+        # Получаем ВСЕ записи о погоде для этого города
+        weather_records = WeatherData.query.filter_by(
+            city_id=city.id
+        ).order_by(
+            WeatherData.timestamp.asc()  # Сортировка от старых к новым
+        ).all()
+
+        if not weather_records:
+            return jsonify({
+                "message": f"No weather data available for {city.name}",
+                "city_info": {
+                    "id": city.id,
+                    "name": city.name,
+                    "country": city.country
+                }
+            }), 200
+
+        # Рассчитываем статистику
+        temperatures = [r.temperature for r in weather_records]
+        stats = {
+            "min_temp": min(temperatures),
+            "max_temp": max(temperatures),
+            "avg_temp": round(sum(temperatures) / len(temperatures), 1),
+            "records_count": len(weather_records),
+            "first_record": weather_records[0].timestamp.isoformat(),
+            "last_record": weather_records[-1].timestamp.isoformat()
+        }
+
+        # Формируем ответ
+        response = {
+            "city_info": {
+                "id": city.id,
+                "name": city.name,
+                "country": city.country,
+                "coordinates": {
+                    "latitude": city.latitude,
+                    "longitude": city.longitude
+                }
+            },
+            "weather_data": [
+                {
+                    "timestamp": record.timestamp.isoformat(),
+                    "temperature": record.temperature,
+                    "humidity": record.humidity,
+                    "wind_speed": record.wind_speed,
+                    "description": record.description
+                } for record in weather_records
+            ],
+            "statistics": stats
+        }
+
+        return jsonify(response), 200
+
+    except Exception as e:
+        return jsonify({
+            "error": "Failed to get weather history",
             "details": str(e)
         }), 500
 

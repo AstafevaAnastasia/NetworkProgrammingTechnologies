@@ -182,51 +182,85 @@ def create_new_user():
         }
     }), 201
 
-
 @bp.route('/weather/<city_name>', methods=['GET'])
-def get_city_weather(city_name):
-    """Получение текущей погоды в указанном городе"""
+def get_city_weather_history(city_name):
+    """
+    Получение ВСЕХ исторических записей о погоде в указанном городе
+    Возвращает:
+    - Информацию о городе
+    - Массив всех доступных записей о погоде
+    - Статистику по температуре
+    """
     try:
-        # Получаем данные о погоде с явным join к таблице Cities
-        weather = WeatherData.query.join(Cities) \
-            .filter(Cities.name.ilike(city_name)) \
-            .order_by(WeatherData.timestamp.desc()) \
-            .first()
+        # Ищем город (регистронезависимо)
+        city = Cities.query.filter(Cities.name.ilike(city_name)).first()
 
-        if not weather:
-            # Если данных нет в БД, пытаемся получить свежие
+        if not city:
+            # Попробуем создать город через WeatherService
             from backend.src.databases.weather_service import WeatherService
-            WeatherService.save_weather_data(city_name)
-            weather = WeatherData.query.join(Cities) \
-                .filter(Cities.name.ilike(city_name)) \
-                .order_by(WeatherData.timestamp.desc()) \
-                .first()
+            weather = WeatherService.save_weather_data(city_name)
             if not weather:
-                return jsonify({"error": "Weather data not found for this city"}), 404
+                return jsonify({"error": f"City '{city_name}' not found"}), 404
+            city = weather.city
 
-        # Получаем связанный город
-        city = Cities.query.get(weather.city_id)
+        # Получаем ВСЕ записи о погоде для этого города
+        weather_records = WeatherData.query.filter_by(
+            city_id=city.id
+        ).order_by(
+            WeatherData.timestamp.asc()  # Сортировка от старых к новым
+        ).all()
 
-        # Формируем ответ
-        weather_data = {
-            "city": city.name,
-            "country": city.country,
-            "temperature": weather.temperature,
-            "humidity": weather.humidity,
-            "wind_speed": weather.wind_speed,
-            "description": weather.description,
-            "timestamp": weather.timestamp.isoformat() if weather.timestamp else None,
-            "coordinates": {
-                "latitude": city.latitude,
-                "longitude": city.longitude
-            }
+        if not weather_records:
+            return jsonify({
+                "message": f"No weather data available for {city.name}",
+                "city_info": {
+                    "id": city.id,
+                    "name": city.name,
+                    "country": city.country
+                }
+            }), 200
+
+        # Рассчитываем статистику
+        temperatures = [r.temperature for r in weather_records]
+        stats = {
+            "min_temp": min(temperatures),
+            "max_temp": max(temperatures),
+            "avg_temp": round(sum(temperatures) / len(temperatures), 1),
+            "records_count": len(weather_records),
+            "first_record": weather_records[0].timestamp.isoformat(),
+            "last_record": weather_records[-1].timestamp.isoformat()
         }
 
-        return jsonify(weather_data), 200
+        # Формируем ответ
+        response = {
+            "city_info": {
+                "id": city.id,
+                "name": city.name,
+                "country": city.country,
+                "coordinates": {
+                    "latitude": city.latitude,
+                    "longitude": city.longitude
+                }
+            },
+            "weather_data": [
+                {
+                    "timestamp": record.timestamp.isoformat(),
+                    "temperature": record.temperature,
+                    "humidity": record.humidity,
+                    "wind_speed": record.wind_speed,
+                    "description": record.description
+                } for record in weather_records
+            ],
+            "statistics": stats
+        }
+
+        return jsonify(response), 200
 
     except Exception as e:
-        return jsonify({"error": f"Failed to get weather data: {str(e)}"}), 500
-
+        return jsonify({
+            "error": "Failed to get weather history",
+            "details": str(e)
+        }), 500
 
 @bp.route('/cities', methods=['POST'])
 def add_city():
@@ -598,159 +632,3 @@ def cleanup_old_weather_data():
             "error": "Failed to cleanup old weather data",
             "details": str(e)
         }), 500
-
-# @bp.route('/weather', methods=['GET'])
-# def get_weather():
-#     city = request.args.get('city')
-#     if not city:
-#         return jsonify({"error": "City parameter is required"}), 400
-#
-#     response = requests.get(
-#         f"{WEATHER_API_URL}/current.json",
-#         params={"key": WEATHER_API_KEY, "q": city}
-#     )
-#     if response.status_code != 200:
-#         return jsonify({"error": "Failed to fetch weather data"}), 500
-#
-#     return jsonify(response.json())
-#
-# @bp.route('/forecast', methods=['GET'])
-# def get_forecast():
-#     city = request.args.get('city')
-#     days = request.args.get('days', default=3, type=int)
-#
-#     if not city:
-#         return jsonify({"error": "City parameter is required"}), 400
-#
-#     response = requests.get(
-#         f"{WEATHER_API_URL}/forecast.json",
-#         params={"key": WEATHER_API_KEY, "q": city, "days": days}
-#     )
-#     if response.status_code != 200:
-#         return jsonify({"error": "Failed to fetch forecast data"}), 500
-#
-#     return jsonify(response.json())
-#
-# # @bp.route('/cities', methods=['POST'])
-# # def add_city():
-# #     data = request.get_json()
-# #     if not data or not all(key in data for key in ['name', 'country', 'latitude', 'longitude']):
-# #         return jsonify({"error": "Invalid data"}), 400
-# #
-# #     existing_city = Cities.query.filter_by(name=data['name'], country=data['country']).first()
-# #     if existing_city:
-# #         return jsonify({"error": "City already exists"}), 400
-# #
-# #     new_city = Cities(
-# #         name=data['name'],
-# #         country=data['country'],
-# #         latitude=data['latitude'],
-# #         longitude=data['longitude'],
-# #     )
-# #     db.session.add(new_city)
-# #     db.session.commit()
-# #
-# #     return jsonify({"message": "City added successfully", "city_id": new_city.id}), 201
-#
-# @bp.route('/users/<int:user_id>/favorites', methods=['POST'])
-# def add_favorite_city(user_id):
-#     data = request.get_json()
-#     if not data or 'city_id' not in data:
-#         return jsonify({"error": "City ID is required"}), 400
-#
-#     user = Users.query.get(user_id)
-#     city = Cities.query.get(data['city_id'])
-#     if not user or not city:
-#         return jsonify({"error": "User or city not found"}), 404
-#
-#     existing_favorite = FavoriteCities.query.filter_by(user_id=user_id, city_id=data['city_id']).first()
-#     if existing_favorite:
-#         return jsonify({"error": "City already in favorites"}), 400
-#
-#     new_favorite = FavoriteCities(user_id=user_id, city_id=data['city_id'])
-#     db.session.add(new_favorite)
-#     db.session.commit()
-#
-#     return jsonify({"message": "City added to favorites"}), 201
-#
-# @bp.route('/users/<int:user_id>/favorites/<int:city_id>', methods=['DELETE'])
-# def remove_favorite_city(user_id, city_id):
-#     favorite = FavoriteCities.query.filter_by(user_id=user_id, city_id=city_id).first()
-#     if not favorite:
-#         return jsonify({"error": "City not found in favorites"}), 404
-#
-#     db.session.delete(favorite)
-#     db.session.commit()
-#
-#     return jsonify({"message": "City removed from favorites"}), 200
-#
-# @bp.route('/users/<int:user_id>/favorites', methods=['GET'])
-# def get_favorite_cities(user_id):
-#     favorites = FavoriteCities.query.filter_by(user_id=user_id).all()
-#     if not favorites:
-#         return jsonify([]), 200
-#
-#     cities = []
-#     for favorite in favorites:
-#         city = Cities.query.get(favorite.city_id)
-#         if city:
-#             cities.append({
-#                 "id": city.id,
-#                 "name": city.name,
-#                 "country": city.country,
-#                 "latitude": city.latitude,
-#                 "longitude": city.longitude,
-#             })
-#
-#     return jsonify(cities), 200
-#
-#
-# @bp.route('/weather/current', methods=['GET'])
-# def get_current_weather():
-#     city = request.args.get('city')
-#     if not city:
-#         return jsonify({"error": "City parameter is required"}), 400
-#
-#     weather = get_weather_for_city(city)
-#     if not weather:
-#         return jsonify({"error": "Failed to fetch weather data"}), 500
-#
-#     return jsonify({
-#         "city": weather.city.name,
-#         "temperature": weather.temperature,
-#         "humidity": weather.humidity,
-#         "wind_speed": weather.wind_speed,
-#         "description": weather.description,
-#         "timestamp": weather.timestamp.isoformat() if weather.timestamp else None
-#     })
-#
-#
-# @bp.route('/weather/forecast', methods=['GET'])
-# def get_weather_forecast():
-#     city = request.args.get('city')
-#     days = request.args.get('days', default=5, type=int)
-#
-#     if not city:
-#         return jsonify({"error": "City parameter is required"}), 400
-#
-#     forecast = get_forecast_for_city(city, days)
-#     if not forecast:
-#         return jsonify({"error": "Failed to fetch forecast data"}), 500
-#
-#     return jsonify(forecast)
-#
-#
-# @bp.route('/weather/save', methods=['POST'])
-# def save_weather_data():
-#     city = request.args.get('city')
-#     if not city:
-#         return jsonify({"error": "City parameter is required"}), 400
-#
-#     weather = create_city_from_weather(city)
-#     if not weather:
-#         return jsonify({"error": "Failed to save weather data"}), 500
-#
-#     return jsonify({
-#         "message": "Weather data saved successfully",
-#         "weather_id": weather.id
-#     }), 201

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import '../styles/AuthForm.css';
 
-function AuthForm({ isLogin, onSubmit }) {
+function AuthForm({ isLogin, onSubmit, disabled }) {
   const [formData, setFormData] = useState({
     username: '',
     email: '',
@@ -15,15 +15,11 @@ function AuthForm({ isLogin, onSubmit }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (isLogin) {
-      onSubmit({ email: formData.email, password: formData.password });
-    } else {
-      onSubmit({ ...formData });
-    }
+    onSubmit(formData);
   };
 
   return (
-    <form onSubmit={handleSubmit} className="auth-form">
+    <form onSubmit={handleSubmit} className="auth-form" autoComplete="off">
       {!isLogin && (
         <input
           type="text"
@@ -32,6 +28,8 @@ function AuthForm({ isLogin, onSubmit }) {
           value={formData.username}
           onChange={handleChange}
           required
+          minLength="3"
+          disabled={disabled}
         />
       )}
       <input
@@ -41,6 +39,7 @@ function AuthForm({ isLogin, onSubmit }) {
         value={formData.email}
         onChange={handleChange}
         required
+        disabled={disabled}
       />
       <input
         type="password"
@@ -50,8 +49,9 @@ function AuthForm({ isLogin, onSubmit }) {
         onChange={handleChange}
         required
         minLength="6"
+        disabled={disabled}
       />
-      <button type="submit">
+      <button type="submit" disabled={disabled}>
         {isLogin ? 'Войти' : 'Зарегистрироваться'}
       </button>
     </form>

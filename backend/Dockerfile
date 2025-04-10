@@ -15,4 +15,4 @@ EXPOSE 8000
 CMD flask db init && \
     flask db migrate -m "Initial migration" && \
     flask db upgrade && \
-    flask run --host=0.0.0.0 --port 8000
+    flask run --host=0.0.0.0 --port 5000

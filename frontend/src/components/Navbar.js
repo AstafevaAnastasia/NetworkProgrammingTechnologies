@@ -6,7 +6,10 @@ function Navbar({ user, setPage }) {
     <nav>
       <button onClick={() => setPage('home')}>Главная</button>
       {user ? (
-        <button onClick={() => setPage('profile')}>Профиль</button>
+        <>
+          <span className="user-greeting">Привет, {user.username}!</span>
+          <button onClick={() => setPage('profile')}>Профиль</button>
+        </>
       ) : (
         <button onClick={() => setPage('auth')}>Войти</button>
       )}

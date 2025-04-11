@@ -5,6 +5,7 @@ function AuthForm({ isLogin, onSubmit, disabled }) {
   const [formData, setFormData] = useState({
     username: '',
     email: '',
+    emailOrUsername: '',
     password: ''
   });
 
@@ -15,32 +16,51 @@ function AuthForm({ isLogin, onSubmit, disabled }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    onSubmit(formData);
+    if (isLogin) {
+      onSubmit({
+        emailOrUsername: formData.emailOrUsername,
+        password: formData.password
+      });
+    } else {
+      onSubmit(formData);
+    }
   };
 
   return (
     <form onSubmit={handleSubmit} className="auth-form" autoComplete="off">
-      {!isLogin && (
+      {!isLogin ? (
+        <>
+          <input
+            type="text"
+            name="username"
+            placeholder="Имя пользователя"
+            value={formData.username}
+            onChange={handleChange}
+            required
+            minLength="3"
+            disabled={disabled}
+          />
+          <input
+            type="email"
+            name="email"
+            placeholder="Email"
+            value={formData.email}
+            onChange={handleChange}
+            required
+            disabled={disabled}
+          />
+        </>
+      ) : (
         <input
           type="text"
-          name="username"
-          placeholder="Имя пользователя"
-          value={formData.username}
+          name="emailOrUsername"
+          placeholder="Email или логин"
+          value={formData.emailOrUsername}
           onChange={handleChange}
           required
-          minLength="3"
           disabled={disabled}
         />
       )}
-      <input
-        type="email"
-        name="email"
-        placeholder="Email"
-        value={formData.email}
-        onChange={handleChange}
-        required
-        disabled={disabled}
-      />
       <input
         type="password"
         name="password"

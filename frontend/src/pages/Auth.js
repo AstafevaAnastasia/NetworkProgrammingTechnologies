@@ -30,14 +30,11 @@ function Auth({ setUser, setPage }) {
         throw new Error(data.message || 'Ошибка регистрации');
       }
 
-      // Сохраняем данные пользователя после успешной регистрации
       setUser({
         username: data.username,
         email: data.email,
-        // Другие данные, которые может вернуть сервер
       });
 
-      // Перенаправляем на главную страницу
       setPage('home');
 
     } catch (err) {
@@ -48,11 +45,48 @@ function Auth({ setUser, setPage }) {
     }
   };
 
-  const handleLogin = (email, password) => {
-    // Заглушка для входа (реализуйте аналогично регистрации)
-    console.log('Login attempt:', { email, password });
-    setUser({ email });
-    setPage('home');
+  const handleLogin = async (emailOrUsername, password) => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      // Определяем параметр поиска (email или username)
+      const isEmail = emailOrUsername.includes('@');
+      const searchParam = isEmail ? 'email' : 'username';
+
+      // Ищем пользователя по email или username
+      const searchResponse = await fetch(
+        `http://127.0.0.1:5000/users/search?${searchParam}=${encodeURIComponent(emailOrUsername)}`
+      );
+
+      const users = await searchResponse.json();
+
+      if (!searchResponse.ok || !users.length) {
+        throw new Error('Пользователь не найден');
+      }
+
+      const user = users[0];
+
+      // Проверяем пароль (в реальном приложении это должно делаться на бэкенде)
+      if (user.password !== password) {
+        throw new Error('Неверный пароль');
+      }
+
+      // Авторизуем пользователя
+      setUser({
+        id: user.id,
+        username: user.username,
+        email: user.email,
+      });
+
+      setPage('home');
+
+    } catch (err) {
+      setError(err.message || 'Неверные учетные данные');
+      console.error('Login error:', err);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -66,7 +100,7 @@ function Auth({ setUser, setPage }) {
         <>
           <AuthForm
             isLogin={true}
-            onSubmit={({email, password}) => handleLogin(email, password)}
+            onSubmit={({emailOrUsername, password}) => handleLogin(emailOrUsername, password)}
             disabled={isLoading}
           />
           <button

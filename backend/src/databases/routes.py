@@ -632,3 +632,63 @@ def cleanup_old_weather_data():
             "error": "Failed to cleanup old weather data",
             "details": str(e)
         }), 500
+
+
+@bp.route('/auth/login', methods=['POST'])
+def login():
+    """
+    Аутентификация пользователя
+    Принимает в теле запроса:
+    - username ИЛИ email
+    - password
+    """
+    try:
+        data = request.get_json()
+
+        # Проверка обязательных полей
+        if not data or 'password' not in data or ('username' not in data and 'email' not in data):
+            return jsonify({
+                "error": "Необходимо указать username или email и пароль"
+            }), 400
+
+        password = data['password']
+        username = data.get('username')
+        email = data.get('email')
+
+        # Ищем пользователя по username или email
+        if username:
+            user = Users.query.filter(
+                (Users.username == username) |
+                (Users.email == username)  # На случай если ввели email в поле username
+            ).first()
+        else:
+            user = Users.query.filter_by(email=email).first()
+
+        if not user:
+            return jsonify({
+                "error": "Пользователь с такими данными не найден",
+                "hint": "Проверьте правильность логина или email"
+            }), 404
+
+        # Сравниваем пароли (без хеширования в текущей реализации)
+        if user.password_hash != password:
+            return jsonify({
+                "error": "Неверный пароль",
+                "hint": "Попробуйте ввести пароль еще раз"
+            }), 401
+
+        # Успешная аутентификация
+        return jsonify({
+            "message": "Аутентификация успешна",
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email
+            }
+        }), 200
+
+    except Exception as e:
+        return jsonify({
+            "error": "Ошибка при аутентификации",
+            "details": str(e)
+        }), 500

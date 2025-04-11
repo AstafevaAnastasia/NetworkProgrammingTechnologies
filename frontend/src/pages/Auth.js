@@ -27,16 +27,16 @@ function Auth({ setUser, setPage }) {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.message || 'Ошибка регистрации');
+        throw new Error(data.error || 'Ошибка регистрации');
       }
 
       setUser({
-        username: data.username,
-        email: data.email,
+        id: data.user.id,
+        username: data.user.username,
+        email: data.user.email,
       });
 
       setPage('home');
-
     } catch (err) {
       setError(err.message || 'Произошла ошибка при регистрации');
       console.error('Registration error:', err);
@@ -50,37 +50,30 @@ function Auth({ setUser, setPage }) {
     setError(null);
 
     try {
-      // Определяем параметр поиска (email или username)
-      const isEmail = emailOrUsername.includes('@');
-      const searchParam = isEmail ? 'email' : 'username';
+      const response = await fetch('http://127.0.0.1:5000/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          [emailOrUsername.includes('@') ? 'email' : 'username']: emailOrUsername,
+          password
+        }),
+      });
 
-      // Ищем пользователя по email или username
-      const searchResponse = await fetch(
-        `http://127.0.0.1:5000/users/search?${searchParam}=${encodeURIComponent(emailOrUsername)}`
-      );
+      const data = await response.json();
 
-      const users = await searchResponse.json();
-
-      if (!searchResponse.ok || !users.length) {
-        throw new Error('Пользователь не найден');
+      if (!response.ok) {
+        throw new Error(data.error || 'Ошибка входа');
       }
 
-      const user = users[0];
-
-      // Проверяем пароль (в реальном приложении это должно делаться на бэкенде)
-      if (user.password !== password) {
-        throw new Error('Неверный пароль');
-      }
-
-      // Авторизуем пользователя
       setUser({
-        id: user.id,
-        username: user.username,
-        email: user.email,
+        id: data.user.id,
+        username: data.user.username,
+        email: data.user.email,
       });
 
       setPage('home');
-
     } catch (err) {
       setError(err.message || 'Неверные учетные данные');
       console.error('Login error:', err);

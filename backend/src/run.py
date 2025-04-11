@@ -1,9 +1,11 @@
 import sys
 from pathlib import Path
-from flask import Flask
+from flask import Flask, jsonify
 from flask_cors import CORS
 from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
+from flask_jwt_extended import JWTManager, create_access_token, jwt_required
+from datetime import datetime, timedelta, timezone
 
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
@@ -17,6 +19,36 @@ def create_app():
     # Конфигурация
     app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:appasonya2@localhost:5432/postgres'
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+    app.config['JWT_SECRET_KEY'] = 'wherewerewe'  # В продакшене используйте надежный ключ!
+    app.config['JWT_ALGORITHM'] = 'HS256'
+    app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=1)  # Срок жизни токена
+    # app.config['JWT_TOKEN_LOCATION'] = ['headers', 'cookies']  # Где искать токен
+    # app.config['JWT_HEADER_NAME'] = 'Authorization'  # Название заголовка
+    # app.config['JWT_HEADER_TYPE'] = 'Bearer'  # Тип токена в заголовке
+
+    jwt = JWTManager(app)
+
+    @jwt.expired_token_loader
+    def expired_token_callback(jwt_header, jwt_payload):
+        return jsonify({
+            "error": "Токен истек",
+            "message": "Пожалуйста, войдите снова"
+        }), 401
+
+    @jwt.invalid_token_loader
+    def invalid_token_callback(error):
+        return jsonify({
+            "error": "Неверный токен",
+            "message": "Проверьте ваш токен авторизации"
+        }), 401
+
+    @jwt.unauthorized_loader
+    def missing_token_callback(error):
+        return jsonify({
+            "error": "Требуется авторизация",
+            "message": "Запрос не содержит токен авторизации"
+        }), 401
 
     # Инициализация расширений
     db.init_app(app)
@@ -37,6 +69,7 @@ def create_app():
 
 
 app = create_app()
+
 
 if __name__ == "__main__":
     with app.app_context():

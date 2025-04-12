@@ -8,13 +8,11 @@ function AuthForm({ isLogin, onSubmit, disabled }) {
     emailOrUsername: '',
     password: ''
   });
-
   const [errors, setErrors] = useState({});
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
-    // Очищаем ошибку при изменении поля
     if (errors[name]) {
       setErrors(prev => ({ ...prev, [name]: '' }));
     }
@@ -24,14 +22,14 @@ function AuthForm({ isLogin, onSubmit, disabled }) {
     const newErrors = {};
 
     if (isLogin) {
-      if (!formData.emailOrUsername) {
+      if (!formData.emailOrUsername.trim()) {
         newErrors.emailOrUsername = 'Введите email или имя пользователя';
       }
     } else {
-      if (!formData.username) {
+      if (!formData.username.trim()) {
         newErrors.username = 'Введите имя пользователя';
       }
-      if (!formData.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+      if (!formData.email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
         newErrors.email = 'Введите корректный email';
       }
     }
@@ -48,18 +46,18 @@ function AuthForm({ isLogin, onSubmit, disabled }) {
     e.preventDefault();
     if (!validateForm()) return;
 
-    if (isLogin) {
-      onSubmit({
-        emailOrUsername: formData.emailOrUsername.trim(),
-        password: formData.password
-      });
-    } else {
-      onSubmit({
-        username: formData.username.trim(),
-        email: formData.email.trim(),
-        password: formData.password
-      });
-    }
+    const data = isLogin
+      ? {
+          emailOrUsername: formData.emailOrUsername.trim(),
+          password: formData.password
+        }
+      : {
+          username: formData.username.trim(),
+          email: formData.email.trim(),
+          password: formData.password
+        };
+
+    onSubmit(data);
   };
 
   return (

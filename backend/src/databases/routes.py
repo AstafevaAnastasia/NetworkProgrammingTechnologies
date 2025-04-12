@@ -5,7 +5,8 @@ from backend.src.databases.models import Users, Cities, WeatherData, FavoriteCit
     create_city_from_weather, get_forecast_for_city, create_test_user
 import requests
 from datetime import datetime, timedelta, timezone
-from flask_jwt_extended import jwt_required, get_jwt_identity, create_access_token
+from flask_jwt_extended import jwt_required, get_jwt_identity, create_access_token, create_refresh_token, \
+    unset_jwt_cookies, set_access_cookies
 from .weather_service import WeatherService
 
 # Конфигурация для внешнего API погоды
@@ -78,51 +79,81 @@ def get_city_weather_history(city_name):
     except Exception as e:
         return jsonify({"error": "Failed to get weather history", "details": str(e)}), 500
 
-# Эндпоинты аутентификации
+
 @bp.route('/auth/login', methods=['POST'])
 def login():
     """Аутентификация пользователя с выдачей JWT-токена"""
     try:
         data = request.get_json()
-        if not data or 'password' not in data or ('username' not in data and 'email' not in data):
-            return jsonify({"error": "Необходимо указать username/email и пароль"}), 400
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
 
-        password = data['password']
-        username = data.get('username')
-        email = data.get('email')
+        # Логирование входящих данных для отладки
+        print("Received login data:", data)
 
+        # Проверка обязательных полей
+        if 'password' not in data:
+            return jsonify({"error": "Password is required"}), 400
+
+        identifier = None
+        identifier_type = None
+
+        if 'username' in data:
+            identifier = data['username']
+            identifier_type = 'username'
+        elif 'email' in data:
+            identifier = data['email']
+            identifier_type = 'email'
+        else:
+            return jsonify({"error": "Username or email is required"}), 400
+
+        # Поиск пользователя
         user = None
-        if username:
+        if identifier_type == 'username':
             user = Users.query.filter(
-                (Users.username == username) |
-                (Users.email == username)
+                (Users.username == identifier) |
+                (Users.email == identifier)
             ).first()
         else:
-            user = Users.query.filter_by(email=email).first()
+            user = Users.query.filter_by(email=identifier).first()
 
         if not user:
-            return jsonify({"error": "Пользователь не найден"}), 404
+            return jsonify({"error": "User not found"}), 404
 
-        if user.password_hash != password:
-            return jsonify({"error": "Неверный пароль"}), 401
+        if user.password_hash != data['password']:
+            return jsonify({"error": "Invalid password"}), 401
 
+        # Создание токенов
         access_token = create_access_token(identity={
             'id': user.id,
             'username': user.username,
             'email': user.email
         })
+        refresh_token = create_refresh_token(identity={
+            'id': user.id,
+            'username': user.username,
+            'email': user.email
+        })
 
-        return jsonify({
-            "message": "Аутентификация успешна",
-            "access_token": access_token,
+        response = jsonify({
+            "message": "Authentication successful",
             "user": {
                 "id": user.id,
                 "username": user.username,
                 "email": user.email
-            }
-        }), 200
+            },
+            "access_token": access_token,
+            "refresh_token": refresh_token
+        })
+
+        return response, 200
+
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print("Login error:", str(e))
+        return jsonify({
+            "error": "Authentication failed",
+            "details": str(e)
+        }), 500
 
 @bp.route('/auth/refresh', methods=['POST'])
 @jwt_required(refresh=True)
@@ -130,35 +161,97 @@ def refresh():
     """Обновление JWT-токена"""
     current_user = get_jwt_identity()
     new_token = create_access_token(identity=current_user)
-    return jsonify(access_token=new_token), 200
+    response = jsonify({
+        "message": "Token refreshed",
+        "access_token": new_token
+    })
+    #set_access_cookies(response, new_token)
+    return response, 200
+
+
+@bp.route('/auth/logout', methods=['POST'])
+@jwt_required()
+def logout():
+    """Выход из системы с очисткой JWT токенов"""
+    try:
+        # Получаем идентификатор пользователя из токена
+        current_user = get_jwt_identity()
+
+        # Создаем ответ
+        response = jsonify({
+            "message": "Logout successful",
+            "user": current_user['username']
+        })
+
+        # Удаляем JWT куки (если используете)
+        unset_jwt_cookies(response)
+
+        # Логируем выход
+        print(f"User {current_user['username']} logged out")
+
+        return response, 200
+    except Exception as e:
+        return jsonify({
+            "error": "Logout failed",
+            "details": str(e)
+        }), 500
 
 # Защищенные эндпоинты (требуют JWT)
 @bp.route('/users', methods=['POST'])
 def create_new_user():
-    """Создание нового пользователя (публичный доступ)"""
-    data = request.get_json()
-    required_fields = ['email', 'password', 'username']
-    if not data or not all(key in data for key in required_fields):
+    """Создание пользователя с автоматическим входом"""
+    try:
+        data = request.get_json()
+        required_fields = ['email', 'password', 'username']
+
+        if not data or not all(key in data for key in required_fields):
+            return jsonify({
+                "error": "Missing required fields",
+                "required_fields": required_fields
+            }), 400
+
+        if len(data['password']) < 6:
+            return jsonify({"error": "Password must be at least 6 characters"}), 400
+
+        # Проверка существования пользователя
+        if Users.query.filter((Users.email == data['email']) | (Users.username == data['username'])).first():
+            return jsonify({"error": "User with this email or username already exists"}), 400
+
+        # Создание пользователя
+        new_user = Users(
+            username=data['username'],
+            email=data['email'],
+            password_hash=data['password']  # В реальном приложении нужно хеширование
+        )
+        db.session.add(new_user)
+        db.session.commit()
+
+        # Создание токенов для автоматического входа
+        access_token = create_access_token(identity={
+            'id': new_user.id,
+            'username': new_user.username,
+            'email': new_user.email
+        })
+        refresh_token = create_refresh_token(identity={
+            'id': new_user.id,
+            'username': new_user.username,
+            'email': new_user.email
+        })
+
         return jsonify({
-            "error": "Необходимо указать все обязательные поля",
-            "required_fields": required_fields
-        }), 400
+            "message": "User created and logged in successfully",
+            "user": {
+                "id": new_user.id,
+                "username": new_user.username,
+                "email": new_user.email
+            },
+            "access_token": access_token,
+            "refresh_token": refresh_token
+        }), 201
 
-    if len(data['password']) < 6:
-        return jsonify({"error": "Пароль должен содержать минимум 6 символов"}), 400
-
-    user = create_test_user(email=data['email'], password=data['password'], username=data['username'])
-    if not user:
-        return jsonify({"error": "Пользователь с таким email или username уже существует"}), 400
-
-    return jsonify({
-        "message": "Пользователь успешно создан",
-        "user": {
-            "id": user.id,
-            "username": user.username,
-            "email": user.email
-        }
-    }), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
 
 @bp.route('/users/<int:user_id>', methods=['GET'])
 @jwt_required()

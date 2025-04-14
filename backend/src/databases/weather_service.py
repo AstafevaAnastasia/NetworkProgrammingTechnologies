@@ -101,3 +101,22 @@ class WeatherService:
             forecast.append(parsed)
 
         return forecast
+
+    def get_city_data(self, city_name):
+        """Получение данных о городе из OpenWeatherMap"""
+        url = f"{self.base_url}/geo/1.0/direct"
+        params = {
+            'q': city_name,
+            'limit': 1,
+            'appid': self.api_key
+        }
+        response = requests.get(url, params=params)
+        if response.status_code == 200 and response.json():
+            data = response.json()[0]
+            return {
+                'name': data.get('name'),
+                'country': data.get('country'),
+                'lat': data.get('lat'),
+                'lon': data.get('lon')
+            }
+        return None

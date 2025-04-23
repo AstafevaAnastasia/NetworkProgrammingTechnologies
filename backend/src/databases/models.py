@@ -1,21 +1,59 @@
 from backend.src.run import db
 from werkzeug.security import generate_password_hash, check_password_hash
+from datetime import datetime
 from sqlalchemy.orm import sessionmaker
+
+
+class TokenBlocklist(db.Model):
+    """Модель для хранения недействительных токенов"""
+    __tablename__ = 'token_blocklist'
+
+    id = db.Column(db.Integer, primary_key=True)
+    jti = db.Column(db.String(36), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f'<TokenBlocklist {self.jti}>'
 
 
 class Users(db.Model):
     __tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(64), unique=True, nullable=False)
-    email = db.Column(db.String(64), unique=True, nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(256), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_login = db.Column(db.DateTime)
+
+    # Связи
+    favorites = db.relationship('FavoriteCities', backref='user', lazy='dynamic')
+
+    def __init__(self, **kwargs):
+        super(Users, self).__init__(**kwargs)
+        if 'password' in kwargs:
+            self.set_password(kwargs['password'])
 
     def set_password(self, password):
+        """Устанавливает хеш пароля"""
         self.password_hash = generate_password_hash(password)
 
     def check_password(self, password):
+        """Проверяет пароль"""
         return check_password_hash(self.password_hash, password)
 
+    def get_id(self):
+        """Возвращает ID пользователя (для Flask-Login)"""
+        return str(self.id)
+
+    def to_dict(self):
+        """Сериализация пользователя в словарь"""
+        return {
+            'id': self.id,
+            'username': self.username,
+            'email': self.email,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'last_login': self.last_login.isoformat() if self.last_login else None
+        }
 
 
 class Cities(db.Model):
@@ -25,6 +63,24 @@ class Cities(db.Model):
     country = db.Column(db.String(64), nullable=False)
     latitude = db.Column(db.Float, nullable=False)
     longitude = db.Column(db.Float, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # Связи
+    weather_data = db.relationship('WeatherData', backref='city', lazy='dynamic')
+    favorites = db.relationship('FavoriteCities', backref='city', lazy='dynamic')
+
+    def to_dict(self):
+        """Сериализация города в словарь"""
+        return {
+            'id': self.id,
+            'name': self.name,
+            'country': self.country,
+            'coordinates': {
+                'latitude': self.latitude,
+                'longitude': self.longitude
+            },
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
 
 
 class WeatherData(db.Model):
@@ -35,152 +91,137 @@ class WeatherData(db.Model):
     humidity = db.Column(db.Integer, nullable=False)
     wind_speed = db.Column(db.Float, nullable=False)
     description = db.Column(db.String(255), nullable=False)
-    timestamp = db.Column(db.DateTime, nullable=False)
+    timestamp = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    icon = db.Column(db.String(50))
+
+    def to_dict(self):
+        """Сериализация данных о погоде"""
+        return {
+            'id': self.id,
+            'city_id': self.city_id,
+            'temperature': self.temperature,
+            'humidity': self.humidity,
+            'wind_speed': self.wind_speed,
+            'description': self.description,
+            'timestamp': self.timestamp.isoformat() if self.timestamp else None,
+            'icon': self.icon
+        }
 
 
 class FavoriteCities(db.Model):
     __tablename__ = 'favorite_cities'
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), primary_key=True)
     city_id = db.Column(db.Integer, db.ForeignKey('cities.id'), primary_key=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        """Сериализация избранного города"""
+        return {
+            'user_id': self.user_id,
+            'city_id': self.city_id,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
 
 
 def create_test_user(email=None, password=None, username=None):
-    """Создает нового пользователя без хеширования пароля"""
-    if not username:
-        username = input("Введите имя пользователя: ")
-    if not email:
-        email = input("Введите email: ")
-    if not password:
-        password = input("Введите пароль: ")
+    """Создает тестового пользователя с хешированием пароля"""
     try:
-        # Проверяем, существует ли пользователь
-        existing_user = Users.query.filter(
-            (Users.email == email) | (Users.username == username)
-        ).first()
+        if not all([email, password, username]):
+            raise ValueError("Email, password and username are required")
 
-        if existing_user:
-            return None  # Просто возвращаем None при ошибке
+        if Users.query.filter((Users.email == email) | (Users.username == username)).first():
+            return None
 
-        # Создаем пользователя (пароль сохраняется как есть)
-        new_user = Users(
+        user = Users(
             email=email,
-            username=username,
-            password_hash=password  # Записываем пароль напрямую
+            username=username
         )
+        user.set_password(password)
 
-        db.session.add(new_user)
+        db.session.add(user)
         db.session.commit()
-
-        return new_user  # Возвращаем только объект пользователя
+        return user
 
     except Exception as e:
         db.session.rollback()
-        print(f"Ошибка при создании пользователя: {str(e)}")
+        print(f"Error creating test user: {str(e)}")
         return None
 
 
 def create_test_city():
     """Создает тестовый город"""
-
-    city = Cities(
-        name='Moscow',
-        country='Russia',
-        latitude=55.7558,
-        longitude=37.6173
-    )
-    db.session.add(city)
-    db.session.flush()
-    return city
-
-
-def create_weather_data(city_id):
-    """Создает тестовые данные о погоде"""
-    weather = WeatherData(
-        city_id=city_id,
-        temperature=25.5,
-        humidity=60,
-        wind_speed=5.3,
-        description='Sunny',
-        timestamp='2023-10-01 12:00:00'
-    )
-    db.session.add(weather)
-    return weather
-
-
-def create_city_from_weather(city_name):
-    """Создает город на основе данных о погоде"""
-    from backend.src.databases.weather_service import WeatherService
-    city = WeatherService.save_weather_data(city_name)
-    if not city:
-        raise ValueError(f"Не удалось создать город {city_name}")
-    return city
-
-
-def get_weather_for_city(city_name):
-    """Получает текущую погоду для города"""
-    from backend.src.databases.weather_service import WeatherService
-    city = Cities.query.filter_by(name=city_name).first()
-    if not city:
+    try:
+        city = Cities(
+            name='Test City',
+            country='Test Country',
+            latitude=0.0,
+            longitude=0.0
+        )
+        db.session.add(city)
+        db.session.commit()
+        return city
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error creating test city: {str(e)}")
         return None
 
-    weather = WeatherData.query.filter_by(city_id=city.id).order_by(WeatherData.timestamp.desc()).first()
-    if not weather:
-        # Если данных нет в БД, получаем свежие
-        WeatherService.save_weather_data(city_name)
-        weather = WeatherData.query.filter_by(city_id=city.id).order_by(WeatherData.timestamp.desc()).first()
-
-    return weather
-
-
-def get_forecast_for_city(city_name, days=5):
-    """Получает прогноз погоды для города"""
-    from backend.src.databases.weather_service import WeatherService
-    return WeatherService.get_forecast(city_name, days)
-
-def create_favorite_city(user_id, city_id):
-    """Добавляет город в избранное"""
-    with db.session.no_autoflush:
-        favorite = FavoriteCities(user_id=user_id, city_id=city_id)
-        db.session.add(favorite)
-    return favorite
 
 def initialize_data():
     """Инициализирует тестовые данные"""
     try:
-        # Создаем пользователя (если его нет)
-        user1 = create_test_user()
-        user2 = create_test_user()
+        # Создаем тестовых пользователей
+        users = [
+            create_test_user(
+                email="user1@example.com",
+                password="password1",
+                username="user1"
+            ),
+            create_test_user(
+                email="user2@example.com",
+                password="password2",
+                username="user2"
+            )
+        ]
 
-        # Создаем или получаем тестовые города с реальными данными о погоде
-        moscow = create_city_from_weather('Moscow')
-        london = create_city_from_weather('London')
+        # Создаем тестовые города
+        cities = [
+            create_test_city(),
+            Cities(
+                name="Another City",
+                country="Another Country",
+                latitude=10.0,
+                longitude=10.0
+            )
+        ]
 
-        # Если города не созданы, попробуем найти существующие
-        if not moscow:
-            moscow = Cities.query.filter_by(name='Moscow').first()
-        if not london:
-            london = Cities.query.filter_by(name='London').first()
-
-        if not all([user1, user2, moscow, london]):
-            print("Не удалось создать все тестовые данные")
-            return
-
-        # # Проверяем, нет ли уже этих городов в избранном у пользователя
-        # existing_favorites = FavoriteCities.query.filter_by(user_id=user1.id).all()
-        # existing_city_ids = [f.city_id for f in existing_favorites]
-        #
-        # existing_favorites = FavoriteCities.query.filter_by(user_id=user2.id).all()
-        # existing_city_ids = [f.city_id for f in existing_favorites]
-        #
-        # if moscow.id not in existing_city_ids:
-        #     create_favorite_city(user1.id, moscow.id)
-        # if london.id not in existing_city_ids:
-        #     create_favorite_city(user2.id, london.id)
-
+        db.session.add_all(cities)
         db.session.commit()
-        print("Тестовые данные успешно созданы")
+
+        # Добавляем тестовые данные о погоде
+        weather_data = [
+            WeatherData(
+                city_id=cities[0].id,
+                temperature=25.0,
+                humidity=50,
+                wind_speed=5.0,
+                description="Sunny"
+            ),
+            WeatherData(
+                city_id=cities[1].id,
+                temperature=15.0,
+                humidity=70,
+                wind_speed=10.0,
+                description="Cloudy"
+            )
+        ]
+
+        db.session.add_all(weather_data)
+        db.session.commit()
+
+        print("Test data initialized successfully")
+        return True
 
     except Exception as e:
         db.session.rollback()
-        print(f"Ошибка при создании тестовых данных: {str(e)}")
-        raise
+        print(f"Error initializing test data: {str(e)}")
+        return False

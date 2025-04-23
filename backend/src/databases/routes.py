@@ -1,9 +1,9 @@
 from flask import current_app, jsonify, request
 from flask_jwt_extended import get_jwt_identity, unset_jwt_cookies, create_access_token, set_access_cookies, \
-    create_refresh_token, jwt_required
+    create_refresh_token, jwt_required, get_jwt
 from . import bp  # Импортируем Blueprint из текущего модуля
 from backend.src.run import db
-from backend.src.databases.models import Users, Cities, WeatherData, FavoriteCities, create_test_user
+from backend.src.databases.models import Users, Cities, WeatherData, FavoriteCities, create_test_user, TokenBlocklist
 import requests
 from datetime import datetime, timedelta, timezone
 from .weather_service import WeatherService
@@ -631,27 +631,33 @@ def register():
     if Users.query.filter_by(username=data['username']).first():
         return jsonify({"error": "Username already taken"}), 400
 
-    user = Users(
-        email=data['email'],
-        username=data['username']
-    )
-    user.set_password(data['password'])
-
     try:
+        user = Users(
+            email=data['email'],
+            username=data['username']
+        )
+        user.set_password(data['password'])
         db.session.add(user)
         db.session.commit()
+
+        # Исправлено: передаём user.id вместо всего объекта user
+        access_token = create_access_token(identity=str(user.id))
+        refresh_token = create_refresh_token(identity=str(user.id))
+
+        return jsonify({
+            "message": "User registered successfully",
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email
+            }
+        }), 201
+
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
-
-    return jsonify({
-        "message": "User registered successfully",
-        "user": {
-            "id": user.id,
-            "username": user.username,
-            "email": user.email
-        }
-    }), 201
 
 
 # Вход в систему
@@ -665,10 +671,11 @@ def login():
     if not user or not user.check_password(data['password']):
         return jsonify({"error": "Invalid credentials"}), 401
 
-    access_token = create_access_token(identity=user.id)
-    refresh_token = create_refresh_token(identity=user.id)
+    # Исправлено: передаём user.id вместо всего объекта user
+    access_token = create_access_token(identity=str(user.id))
+    refresh_token = create_refresh_token(identity=str(user.id))
 
-    response = jsonify({
+    return jsonify({
         "message": "Login successful",
         "access_token": access_token,
         "refresh_token": refresh_token,
@@ -677,19 +684,14 @@ def login():
             "username": user.username,
             "email": user.email
         }
-    })
-
-    # Устанавливаем токены в cookies
-    set_access_cookies(response, access_token)
-    return response, 200
-
+    }), 200
 
 # Обновление токена
 @bp.route('/refresh', methods=['POST'])
 @jwt_required(refresh=True)
 def refresh():
-    current_user = get_jwt_identity()
-    new_token = create_access_token(identity=current_user)
+    identity = get_jwt_identity()
+    new_token = create_access_token(identity=str(identity))
     return jsonify({"access_token": new_token}), 200
 
 
@@ -697,10 +699,35 @@ def refresh():
 @bp.route('/logout', methods=['POST'])
 @jwt_required()
 def logout():
-    response = jsonify({"message": "Successfully logged out"})
-    unset_jwt_cookies(response)
-    return response, 200
+    jti = get_jwt()["jti"]
+    now = datetime.now(timezone.utc)
+    db.session.add(TokenBlocklist(jti=jti, created_at=now))
+    db.session.commit()
+    return jsonify({"message": "Successfully logged out"}), 200
 
+
+@bp.route('/verify', methods=['GET'])
+@jwt_required()
+def verify_token():
+    try:
+        # Получаем ID из токена (теперь будет работать корректно)
+        user_id = get_jwt_identity()
+        user = Users.query.get(user_id)
+
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+
+        return jsonify({
+            "message": "Token is valid",
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email
+            }
+        }), 200
+
+    except Exception as e:
+        return jsonify({"error": "Token verification failed", "details": str(e)}), 401
 
 #Изменение пароля
 @bp.route('/change-password', methods=['POST'])
@@ -724,7 +751,9 @@ def change_password():
 
     return jsonify({"message": "Password changed successfully"}), 200
 
-@bp.route('/protected', methods=['GET'])
-@jwt_required()
-def protected_test():
-    return jsonify({"message": "Access granted"})
+@bp.route('/server_time', methods=['GET'])
+def get_server_time():
+    return jsonify({
+        "server_time_utc": datetime.utcnow().isoformat(),
+        "server_time_local": datetime.now().isoformat()
+    }), 200

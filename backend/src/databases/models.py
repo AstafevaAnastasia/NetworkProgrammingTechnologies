@@ -2,6 +2,7 @@ from backend.src.run import db
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.exc import IntegrityError
 
 
 class TokenBlocklist(db.Model):
@@ -24,6 +25,7 @@ class Users(db.Model):
     password_hash = db.Column(db.String(256), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_login = db.Column(db.DateTime)
+    role = db.Column(db.String(20), default='user')
 
     # Связи
     favorites = db.relationship('FavoriteCities', backref='user', lazy='dynamic')
@@ -123,18 +125,34 @@ class FavoriteCities(db.Model):
         }
 
 
-def create_test_user(email=None, password=None, username=None):
-    """Создает тестового пользователя с хешированием пароля"""
+def create_test_user(email=None, password=None, username=None, role='user'):
+    """
+    Создает тестового пользователя с хешированием пароля
+    :param email: Email пользователя (обязательный)
+    :param password: Пароль пользователя (обязательный)
+    :param username: Имя пользователя (обязательный)
+    :param role: Роль пользователя (по умолчанию 'user')
+    :return: Созданный пользователь или None в случае ошибки
+    """
     try:
+        # Проверка обязательных полей
         if not all([email, password, username]):
             raise ValueError("Email, password and username are required")
 
+        # Проверка допустимых ролей
+        valid_roles = ['user', 'admin', 'moderator']
+        if role not in valid_roles:
+            raise ValueError(f"Invalid role. Allowed roles: {', '.join(valid_roles)}")
+
+        # Проверка существования пользователя
         if Users.query.filter((Users.email == email) | (Users.username == username)).first():
             return None
 
+        # Создание пользователя
         user = Users(
             email=email,
-            username=username
+            username=username,
+            role=role
         )
         user.set_password(password)
 
@@ -142,6 +160,13 @@ def create_test_user(email=None, password=None, username=None):
         db.session.commit()
         return user
 
+    except ValueError as ve:
+        print(f"Validation error: {str(ve)}")
+        return None
+    except IntegrityError:
+        db.session.rollback()
+        print("User with this email or username already exists")
+        return None
     except Exception as e:
         db.session.rollback()
         print(f"Error creating test user: {str(e)}")
@@ -172,14 +197,22 @@ def initialize_data():
         # Создаем тестовых пользователей
         users = [
             create_test_user(
+                email="admin@example.com",
+                password="password132",
+                username="admin",
+                role="admin"
+            ),
+            create_test_user(
                 email="user1@example.com",
                 password="password1",
-                username="user1"
+                username="user1",
+                role="user"
             ),
             create_test_user(
                 email="user2@example.com",
                 password="password2",
-                username="user2"
+                username="user2",
+                role="user"
             )
         ]
 

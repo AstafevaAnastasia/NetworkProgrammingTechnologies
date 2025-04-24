@@ -1,6 +1,6 @@
 from flask import current_app, jsonify, request
 from flask_jwt_extended import get_jwt_identity, unset_jwt_cookies, create_access_token, set_access_cookies, \
-    create_refresh_token, jwt_required, get_jwt
+    create_refresh_token, jwt_required, get_jwt, verify_jwt_in_request
 from . import bp  # Импортируем Blueprint из текущего модуля
 from backend.src.run import db
 from backend.src.databases.models import Users, Cities, WeatherData, FavoriteCities, create_test_user, TokenBlocklist
@@ -8,10 +8,28 @@ import requests
 from datetime import datetime, timedelta, timezone
 from .weather_service import WeatherService
 from sqlalchemy import func
+from functools import wraps
+from sqlalchemy.exc import IntegrityError
 
 # Конфигурация для внешнего API погоды
 WEATHER_API_KEY = 'f4cb5ca908c4c3bfa0bcfa46ec7990b1'
 WEATHER_API_URL = 'https://api.openweathermap.org/data/2.5'
+
+def role_required(required_role):
+    def decorator(f):
+        @wraps(f)
+        def wrapped(*args, **kwargs):
+            verify_jwt_in_request()
+            claims = get_jwt()
+            user_role = claims.get('role', 'user')
+            if user_role != required_role:
+                return jsonify({"error": "Insufficient permissions"}), 403
+            return f(*args, **kwargs)
+        return wrapped
+    return decorator
+
+admin_required = role_required('admin')
+moderator_required = role_required('moderator')
 
 # Все роуты должны использовать @bp.route вместо @app.route
 @bp.route('/')
@@ -19,6 +37,7 @@ def home():
     return "Welcome to the Home Page!"
 
 @bp.route('/users/<int:user_id>', methods=['DELETE'])
+@admin_required
 def delete_user(user_id):
     """Удаление пользователя по ID"""
     try:
@@ -47,86 +66,98 @@ def delete_user(user_id):
         db.session.rollback()
         return jsonify({"error": f"Failed to delete user: {str(e)}"}), 500
 
-@bp.route('/users/<int:user_id>', methods=['PUT'])
-def update_user(user_id):
-    """Обновление данных пользователя"""
-    # Получаем данные из запроса
-    data = request.get_json()
-    if not data:
-        return jsonify({"error": "No data provided"}), 400
-
-    # Находим пользователя
-    user = Users.query.get(user_id)
-    if not user:
-        return jsonify({"error": "User not found"}), 404
-
-    try:
-        # Обновляем поля, если они предоставлены
-        updated_fields = []
-
-        if 'username' in data:
-            # Проверяем, не занято ли новое имя пользователя
-            existing_user = Users.query.filter(
-                Users.username == data['username'],
-                Users.id != user_id
-            ).first()
-            if existing_user:
-                return jsonify({"error": "Username already taken"}), 400
-            user.username = data['username']
-            updated_fields.append('username')
-
-        if 'email' in data:
-            # Проверяем, не занят ли новый email
-            existing_user = Users.query.filter(
-                Users.email == data['email'],
-                Users.id != user_id
-            ).first()
-            if existing_user:
-                return jsonify({"error": "Email already in use"}), 400
-            user.email = data['email']
-            updated_fields.append('email')
-
-        if 'password' in data:
-            # В текущей реализации просто сохраняем пароль как есть
-            if len(data['password']) < 8:
-                return jsonify({"error": "Password must be at least 8 characters"}), 400
-            user.password_hash = data['password']
-            updated_fields.append('password')
-
-        if not updated_fields:
-            return jsonify({"error": "No valid fields to update"}), 400
-
-        db.session.commit()
-
-        return jsonify({
-            "message": "User updated successfully",
-            "updated_fields": updated_fields,
-            "user": {
-                "id": user.id,
-                "username": user.username,
-                "email": user.email
-            }
-        }), 200
-
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"error": f"Failed to update user: {str(e)}"}), 500
+# @bp.route('/users/<int:user_id>', methods=['PUT'])
+# def update_user(user_id):
+#     """Обновление данных пользователя"""
+#     # Получаем данные из запроса
+#     data = request.get_json()
+#     if not data:
+#         return jsonify({"error": "No data provided"}), 400
+#
+#     # Находим пользователя
+#     user = Users.query.get(user_id)
+#     if not user:
+#         return jsonify({"error": "User not found"}), 404
+#
+#     try:
+#         # Обновляем поля, если они предоставлены
+#         updated_fields = []
+#
+#         if 'username' in data:
+#             # Проверяем, не занято ли новое имя пользователя
+#             existing_user = Users.query.filter(
+#                 Users.username == data['username'],
+#                 Users.id != user_id
+#             ).first()
+#             if existing_user:
+#                 return jsonify({"error": "Username already taken"}), 400
+#             user.username = data['username']
+#             updated_fields.append('username')
+#
+#         if 'email' in data:
+#             # Проверяем, не занят ли новый email
+#             existing_user = Users.query.filter(
+#                 Users.email == data['email'],
+#                 Users.id != user_id
+#             ).first()
+#             if existing_user:
+#                 return jsonify({"error": "Email already in use"}), 400
+#             user.email = data['email']
+#             updated_fields.append('email')
+#
+#         if 'password' in data:
+#             # В текущей реализации просто сохраняем пароль как есть
+#             if len(data['password']) < 8:
+#                 return jsonify({"error": "Password must be at least 8 characters"}), 400
+#             user.password_hash = data['password']
+#             updated_fields.append('password')
+#
+#         if not updated_fields:
+#             return jsonify({"error": "No valid fields to update"}), 400
+#
+#         db.session.commit()
+#
+#         return jsonify({
+#             "message": "User updated successfully",
+#             "updated_fields": updated_fields,
+#             "user": {
+#                 "id": user.id,
+#                 "username": user.username,
+#                 "email": user.email
+#             }
+#         }), 200
+#
+#     except Exception as e:
+#         db.session.rollback()
+#         return jsonify({"error": f"Failed to update user: {str(e)}"}), 500
 
 @bp.route('/users/<int:user_id>', methods=['GET'])
+@jwt_required()
 def get_user(user_id):
     """Получение информации о конкретном пользователе по ID"""
+    # Получаем текущего пользователя из JWT токена
+    current_user_id = get_jwt_identity()
+    current_user = Users.query.get(current_user_id)
+
+    # Проверяем, существует ли запрашиваемый пользователь
     user = Users.query.get(user_id)
     if not user:
         return jsonify({"error": "User not found"}), 404
+
+    # Проверяем права доступа: либо запрашиваем свои данные, либо мы админ
+    if current_user.id != user.id and current_user.role != 'admin':
+        return jsonify({"error": "Insufficient permissions"}), 403
 
     return jsonify({
         "id": user.id,
         "username": user.username,
-        "email": user.email
+        "email": user.email,
+        "role": user.role if current_user.role == 'admin' else None  # Показываем роль только админу
     }), 200
 
 
 @bp.route('/users/search', methods=['GET'])
+@admin_required
 def search_users():
     """Поиск пользователей по имени или email"""
     username = request.args.get('username')
@@ -147,44 +178,60 @@ def search_users():
         "email": u.email
     } for u in users]), 200
 
-@bp.route('/users', methods=['POST'])
-def create_new_user():
-    # Получаем данные из JSON запроса
-    data = request.get_json()
 
-    # Проверяем обязательные поля
-    required_fields = ['email', 'password', 'username']
-    if not data or not all(key in data for key in required_fields):
-        return jsonify({
-            "error": "Необходимо указать все обязательные поля",
-            "required_fields": required_fields
-        }), 400
-
-    email = data['email']
-    password = data['password']  # Пароль передается как есть
-    username = data['username']
-
-    # Дополнительная валидация
-    if len(password) < 8:
-        return jsonify({"error": "Пароль должен содержать минимум 8 символов"}), 400
-
-    # Создаем пользователя
-    user = create_test_user(email=email, password=password, username=username)
-
-    if not user:  # Если пользователь не создан
-        return jsonify({"error": "Пользователь с таким email или username уже существует"}), 400
-
-    return jsonify({
-        "message": "Пользователь успешно создан",
-        "user": {
-            "id": user.id,
-            "username": user.username,
-            "email": user.email
-        }
-    }), 201
-
+# @bp.route('/users', methods=['POST'])
+# @admin_required
+# def create_new_user():
+#     # Получаем данные из JSON запроса
+#     data = request.get_json()
+#
+#     # Проверяем обязательные поля
+#     required_fields = ['email', 'password', 'username']
+#     if not data or not all(key in data for key in required_fields):
+#         return jsonify({
+#             "error": "Необходимо указать все обязательные поля",
+#             "required_fields": required_fields
+#         }), 400
+#
+#     email = data['email']
+#     password = data['password']  # Пароль передается как есть
+#     username = data['username']
+#     role = data.get('role', 'user')  # По умолчанию роль 'user', если не указана
+#
+#     # Проверяем допустимость роли
+#     valid_roles = ['user', 'admin', 'moderator']  # Список допустимых ролей
+#     if role not in valid_roles:
+#         return jsonify({
+#             "error": "Недопустимая роль пользователя",
+#             "valid_roles": valid_roles
+#         }), 400
+#
+#     # Дополнительная валидация
+#     if len(password) < 8:
+#         return jsonify({"error": "Пароль должен содержать минимум 8 символов"}), 400
+#
+#     # Создаем пользователя
+#     user = Users(email=email, password=password, username=username, role=role)
+#
+#     try:
+#         db.session.add(user)
+#         db.session.commit()
+#     except IntegrityError:
+#         db.session.rollback()
+#         return jsonify({"error": "Пользователь с таким email или username уже существует"}), 400
+#
+#     return jsonify({
+#         "message": "Пользователь успешно создан",
+#         "user": {
+#             "id": user.id,
+#             "username": user.username,
+#             "email": user.email,
+#             "role": user.role
+#         }
+#     }), 201
 
 @bp.route('/cities', methods=['POST'])
+@admin_required
 def add_city():
     """Добавление нового города в базу данных по названию (данные берутся из OpenWeatherMap)"""
     try:
@@ -280,6 +327,7 @@ def add_city():
         }), 500
 
 @bp.route('/cities/<int:city_id>', methods=['DELETE'])
+@admin_required
 def delete_city(city_id):
     """Удаление города из базы данных по ID"""
     try:
@@ -323,6 +371,7 @@ def delete_city(city_id):
 
 
 @bp.route('/users/<int:user_id>/favorites', methods=['POST'])
+@admin_required
 def add_favorite_city(user_id):
     """Добавление любимого города пользователя по ID города"""
     try:
@@ -385,6 +434,7 @@ def add_favorite_city(user_id):
         }), 500
 
 @bp.route('/users/<int:user_id>/favorites/<int:city_id>', methods=['DELETE'])
+@admin_required
 def remove_favorite_city(user_id, city_id):
     """Удаление города из избранного у конкретного пользователя по ID города"""
     try:
@@ -486,6 +536,7 @@ def get_city_weather(city_id):
         return jsonify({"error": f"Failed to get weather data: {str(e)}"}), 500
 
 @bp.route('/weather/update_hourly/<int:city_id>', methods=['POST'])
+@admin_required
 def update_hourly_weather(city_id):
     """
     Добавляет почасовые данные о погоде для указанного города по ID:
@@ -551,6 +602,7 @@ def update_hourly_weather(city_id):
         }), 500
 
 @bp.route('/weather/cleanup', methods=['DELETE'])
+@admin_required
 def cleanup_old_weather_data():
     """
     Удаляет устаревшие записи о погоде:
@@ -632,17 +684,26 @@ def register():
         return jsonify({"error": "Username already taken"}), 400
 
     try:
+        # Создаем пользователя с ролью по умолчанию 'user'
         user = Users(
             email=data['email'],
-            username=data['username']
+            username=data['username'],
+            role=data.get('role', 'user')  # Можно задать роль при регистрации, если нужно
         )
         user.set_password(data['password'])
         db.session.add(user)
         db.session.commit()
 
-        # Исправлено: передаём user.id вместо всего объекта user
-        access_token = create_access_token(identity=str(user.id))
-        refresh_token = create_refresh_token(identity=str(user.id))
+        # Создаем токены с дополнительными claims (включая роль)
+        additional_claims = {"role": user.role}
+        access_token = create_access_token(
+            identity=str(user.id),
+            additional_claims=additional_claims
+        )
+        refresh_token = create_refresh_token(
+            identity=str(user.id),
+            additional_claims=additional_claims
+        )
 
         return jsonify({
             "message": "User registered successfully",
@@ -651,7 +712,8 @@ def register():
             "user": {
                 "id": user.id,
                 "username": user.username,
-                "email": user.email
+                "email": user.email,
+                "role": user.role  # Добавляем роль в ответ
             }
         }), 201
 
@@ -660,7 +722,6 @@ def register():
         return jsonify({"error": str(e)}), 500
 
 
-# Вход в систему
 @bp.route('/login', methods=['POST'])
 def login():
     data = request.get_json()
@@ -671,9 +732,16 @@ def login():
     if not user or not user.check_password(data['password']):
         return jsonify({"error": "Invalid credentials"}), 401
 
-    # Исправлено: передаём user.id вместо всего объекта user
-    access_token = create_access_token(identity=str(user.id))
-    refresh_token = create_refresh_token(identity=str(user.id))
+    # Создаем токены с дополнительными claims (включая роль)
+    additional_claims = {"role": user.role}
+    access_token = create_access_token(
+        identity=str(user.id),
+        additional_claims=additional_claims
+    )
+    refresh_token = create_refresh_token(
+        identity=str(user.id),
+        additional_claims=additional_claims
+    )
 
     return jsonify({
         "message": "Login successful",
@@ -682,7 +750,8 @@ def login():
         "user": {
             "id": user.id,
             "username": user.username,
-            "email": user.email
+            "email": user.email,
+            "role": user.role  # Добавляем роль в ответ
         }
     }), 200
 
@@ -730,26 +799,72 @@ def verify_token():
         return jsonify({"error": "Token verification failed", "details": str(e)}), 401
 
 #Изменение пароля
-@bp.route('/change-password', methods=['POST'])
+@bp.route('/update-account', methods=['POST'])
 @jwt_required()
-def change_password():
+def update_account():
     current_user_id = get_jwt_identity()
     data = request.get_json()
 
-    if not data or 'old_password' not in data or 'new_password' not in data:
-        return jsonify({"error": "Old and new password required"}), 400
+    # Базовые проверки
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
 
     user = Users.query.get(current_user_id)
     if not user:
         return jsonify({"error": "User not found"}), 404
 
-    if not user.check_password(data['old_password']):
-        return jsonify({"error": "Invalid old password"}), 401
+    # Изменение пароля (требуется старый пароль)
+    if 'new_password' in data:
+        if 'old_password' not in data:
+            return jsonify({"error": "Old password is required to set new password"}), 400
 
-    user.set_password(data['new_password'])
-    db.session.commit()
+        if not user.check_password(data['old_password']):
+            return jsonify({"error": "Invalid old password"}), 401
 
-    return jsonify({"message": "Password changed successfully"}), 200
+        if len(data['new_password']) < 8:
+            return jsonify({"error": "New password must be at least 8 characters"}), 400
+
+        user.set_password(data['new_password'])
+
+    # Изменение email
+    if 'email' in data:
+        new_email = data['email'].strip()
+        if not new_email:
+            return jsonify({"error": "Email cannot be empty"}), 400
+
+        if new_email != user.email and Users.query.filter_by(email=new_email).first():
+            return jsonify({"error": "Email already in use"}), 400
+
+        user.email = new_email
+
+    # Изменение username
+    if 'username' in data:
+        new_username = data['username'].strip()
+        if not new_username:
+            return jsonify({"error": "Username cannot be empty"}), 400
+
+        if new_username != user.username and Users.query.filter_by(username=new_username).first():
+            return jsonify({"error": "Username already taken"}), 400
+
+        user.username = new_username
+
+    # Если нет изменений
+    if not any(field in data for field in ['new_password', 'email', 'username']):
+        return jsonify({"error": "No fields to update provided"}), 400
+
+    try:
+        db.session.commit()
+        return jsonify({
+            "message": "Account updated successfully",
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email
+            }
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
 
 @bp.route('/server_time', methods=['GET'])
 def get_server_time():

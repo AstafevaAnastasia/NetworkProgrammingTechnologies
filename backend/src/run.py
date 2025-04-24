@@ -5,6 +5,7 @@ from flask_cors import CORS
 from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta, timezone
+from functools import wraps
 from flask_jwt_extended import (
     JWTManager,
     create_access_token,

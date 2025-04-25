@@ -759,10 +759,23 @@ def login():
 @bp.route('/refresh', methods=['POST'])
 @jwt_required(refresh=True)
 def refresh():
-    identity = get_jwt_identity()
-    new_token = create_access_token(identity=str(identity))
-    return jsonify({"access_token": new_token}), 200
+    # Получаем данные из текущего refresh-токена
+    current_user = get_jwt_identity()
+    claims = get_jwt()
 
+    # Проверяем, есть ли роль в claims (на случай устаревших токенов)
+    user_role = claims.get('role', 'user')
+
+    # Создаем новый access-токен с сохранением роли
+    new_token = create_access_token(
+        identity=str(current_user),
+        additional_claims={'role': user_role}
+    )
+
+    return jsonify({
+        "access_token": new_token,
+        "role": user_role  # Для удобства фронтенда
+    }), 200
 
 # Выход из системы
 @bp.route('/logout', methods=['POST'])

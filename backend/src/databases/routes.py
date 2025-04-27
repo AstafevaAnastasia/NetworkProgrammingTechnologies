@@ -66,95 +66,108 @@ def delete_user(user_id):
         db.session.rollback()
         return jsonify({"error": f"Failed to delete user: {str(e)}"}), 500
 
-# @bp.route('/users/<int:user_id>', methods=['PUT'])
-# def update_user(user_id):
-#     """Обновление данных пользователя"""
-#     # Получаем данные из запроса
-#     data = request.get_json()
-#     if not data:
-#         return jsonify({"error": "No data provided"}), 400
-#
-#     # Находим пользователя
-#     user = Users.query.get(user_id)
-#     if not user:
-#         return jsonify({"error": "User not found"}), 404
-#
-#     try:
-#         # Обновляем поля, если они предоставлены
-#         updated_fields = []
-#
-#         if 'username' in data:
-#             # Проверяем, не занято ли новое имя пользователя
-#             existing_user = Users.query.filter(
-#                 Users.username == data['username'],
-#                 Users.id != user_id
-#             ).first()
-#             if existing_user:
-#                 return jsonify({"error": "Username already taken"}), 400
-#             user.username = data['username']
-#             updated_fields.append('username')
-#
-#         if 'email' in data:
-#             # Проверяем, не занят ли новый email
-#             existing_user = Users.query.filter(
-#                 Users.email == data['email'],
-#                 Users.id != user_id
-#             ).first()
-#             if existing_user:
-#                 return jsonify({"error": "Email already in use"}), 400
-#             user.email = data['email']
-#             updated_fields.append('email')
-#
-#         if 'password' in data:
-#             # В текущей реализации просто сохраняем пароль как есть
-#             if len(data['password']) < 8:
-#                 return jsonify({"error": "Password must be at least 8 characters"}), 400
-#             user.password_hash = data['password']
-#             updated_fields.append('password')
-#
-#         if not updated_fields:
-#             return jsonify({"error": "No valid fields to update"}), 400
-#
-#         db.session.commit()
-#
-#         return jsonify({
-#             "message": "User updated successfully",
-#             "updated_fields": updated_fields,
-#             "user": {
-#                 "id": user.id,
-#                 "username": user.username,
-#                 "email": user.email
-#             }
-#         }), 200
-#
-#     except Exception as e:
-#         db.session.rollback()
-#         return jsonify({"error": f"Failed to update user: {str(e)}"}), 500
-
 @bp.route('/users/<int:user_id>', methods=['GET'])
 @jwt_required()
 def get_user(user_id):
-    """Получение информации о конкретном пользователе по ID"""
-    # Получаем текущего пользователя из JWT токена
-    current_user_id = get_jwt_identity()
-    current_user = Users.query.get(current_user_id)
+    """Получение информации о пользователе (только для себя) с любимыми городами"""
+    try:
+        # Получаем текущего пользователя из JWT токена
+        current_user_id = int(get_jwt_identity())
+        current_user = Users.query.get(current_user_id)
 
-    # Проверяем, существует ли запрашиваемый пользователь
-    user = Users.query.get(user_id)
-    if not user:
-        return jsonify({"error": "User not found"}), 404
+        # Проверяем существование текущего пользователя
+        if not current_user:
+            return jsonify({"error": "Current user not found"}), 404
 
-    # Проверяем права доступа: либо запрашиваем свои данные, либо мы админ
-    if current_user.id != user.id and current_user.role != 'admin':
-        return jsonify({"error": "Insufficient permissions"}), 403
+        # Проверяем, что пользователь запрашивает свои данные
+        if current_user.id != user_id:
+            return jsonify({"error": "You can only view your own profile"}), 403
 
-    return jsonify({
-        "id": user.id,
-        "username": user.username,
-        "email": user.email,
-        "role": user.role if current_user.role == 'admin' else None  # Показываем роль только админу
-    }), 200
+        # Получаем информацию о пользователе
+        user = Users.query.get(user_id)
+        if not user:
+            return jsonify({"error": "User not found"}), 404
 
+        # Получаем список любимых городов
+        favorites = FavoriteCities.query.filter_by(user_id=user_id).all()
+        favorite_cities = []
+
+        for fav in favorites:
+            city = Cities.query.get(fav.city_id)
+            if city:
+                favorite_cities.append(city.to_dict())
+
+        return jsonify({
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "created_at": user.created_at.isoformat() if user.created_at else None,
+                "last_login": user.last_login.isoformat() if user.last_login else None
+            },
+            "favorite_cities": favorite_cities
+        }), 200
+
+    except ValueError:
+        return jsonify({"error": "Invalid user ID format in token"}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@bp.route('/users/<int:user_id>/favorites/weather', methods=['GET'])
+@jwt_required()
+def get_favorite_cities_weather(user_id):
+    """Получение текущей погоды для любимых городов пользователя (только для себя)"""
+    try:
+        # Получаем текущего пользователя из JWT токена
+        current_user_id = int(get_jwt_identity())
+
+        # Проверяем, что пользователь запрашивает свои данные
+        if current_user_id != user_id:
+            return jsonify({"error": "You can only view weather for your own favorite cities"}), 403
+
+        # Получаем пользователя из БД
+        user = Users.query.get(user_id)
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+
+        # Получаем список любимых городов пользователя с join для оптимизации запроса
+        favorites = db.session.query(
+            FavoriteCities,
+            Cities,
+            WeatherData
+        ).join(
+            Cities, FavoriteCities.city_id == Cities.id
+        ).join(
+            WeatherData, Cities.id == WeatherData.city_id
+        ).filter(
+            FavoriteCities.user_id == user_id
+        ).order_by(
+            WeatherData.timestamp.desc()
+        ).all()
+
+        # Группируем по городам и берем последнюю запись о погоде для каждого
+        weather_data = []
+        processed_cities = set()
+
+        for fav, city, weather in favorites:
+            if city.id not in processed_cities:
+                weather_data.append({
+                    "city": city.to_dict(),
+                    "weather": weather.to_dict()
+                })
+                processed_cities.add(city.id)
+
+        return jsonify({
+            "message": "Weather for favorite cities retrieved successfully",
+            "count": len(weather_data),
+            "favorite_cities_weather": weather_data
+        }), 200
+
+    except ValueError:
+        return jsonify({"error": "Invalid user ID format in token"}), 400
+    except Exception as e:
+        return jsonify({"error": f"Failed to get weather data: {str(e)}"}), 500
 
 @bp.route('/users/search', methods=['GET'])
 @admin_required
@@ -177,58 +190,6 @@ def search_users():
         "username": u.username,
         "email": u.email
     } for u in users]), 200
-
-
-# @bp.route('/users', methods=['POST'])
-# @admin_required
-# def create_new_user():
-#     # Получаем данные из JSON запроса
-#     data = request.get_json()
-#
-#     # Проверяем обязательные поля
-#     required_fields = ['email', 'password', 'username']
-#     if not data or not all(key in data for key in required_fields):
-#         return jsonify({
-#             "error": "Необходимо указать все обязательные поля",
-#             "required_fields": required_fields
-#         }), 400
-#
-#     email = data['email']
-#     password = data['password']  # Пароль передается как есть
-#     username = data['username']
-#     role = data.get('role', 'user')  # По умолчанию роль 'user', если не указана
-#
-#     # Проверяем допустимость роли
-#     valid_roles = ['user', 'admin', 'moderator']  # Список допустимых ролей
-#     if role not in valid_roles:
-#         return jsonify({
-#             "error": "Недопустимая роль пользователя",
-#             "valid_roles": valid_roles
-#         }), 400
-#
-#     # Дополнительная валидация
-#     if len(password) < 8:
-#         return jsonify({"error": "Пароль должен содержать минимум 8 символов"}), 400
-#
-#     # Создаем пользователя
-#     user = Users(email=email, password=password, username=username, role=role)
-#
-#     try:
-#         db.session.add(user)
-#         db.session.commit()
-#     except IntegrityError:
-#         db.session.rollback()
-#         return jsonify({"error": "Пользователь с таким email или username уже существует"}), 400
-#
-#     return jsonify({
-#         "message": "Пользователь успешно создан",
-#         "user": {
-#             "id": user.id,
-#             "username": user.username,
-#             "email": user.email,
-#             "role": user.role
-#         }
-#     }), 201
 
 @bp.route('/cities', methods=['POST'])
 @admin_required
@@ -371,121 +332,81 @@ def delete_city(city_id):
 
 
 @bp.route('/users/<int:user_id>/favorites', methods=['POST'])
-@admin_required
+@jwt_required()
 def add_favorite_city(user_id):
-    """Добавление любимого города пользователя по ID города"""
+    """Добавление любимого города (только для своего аккаунта)"""
     try:
-        # Получаем данные из запроса
+        # Приводим ID к одному типу (str или int)
+        current_user_id = int(get_jwt_identity())  # Преобразуем в int
+
+        if current_user_id != user_id:
+            return jsonify({"error": "You can only add favorites to your own account"}), 403
+
+        # Остальной код без изменений...
         data = request.get_json()
         if not data or 'city_id' not in data:
             return jsonify({"error": "City ID is required"}), 400
 
         city_id = data['city_id']
-
-        # Проверяем существование пользователя
-        user = Users.query.get(user_id)
-        if not user:
-            return jsonify({"error": "User not found"}), 404
-
-        # Проверяем существование города
         city = Cities.query.get(city_id)
         if not city:
             return jsonify({"error": "City not found"}), 404
 
-        # Проверяем, не добавлен ли уже город в избранное
-        existing_favorite = FavoriteCities.query.filter_by(
-            user_id=user_id,
-            city_id=city_id
-        ).first()
-
-        if existing_favorite:
+        if FavoriteCities.query.filter_by(user_id=user_id, city_id=city_id).first():
             return jsonify({
                 "error": "City already in favorites",
-                "city": {
-                    "id": city.id,
-                    "name": city.name,
-                    "country": city.country
-                }
+                "city": city.to_dict()
             }), 409
 
-        # Добавляем город в избранное
         new_favorite = FavoriteCities(user_id=user_id, city_id=city_id)
         db.session.add(new_favorite)
         db.session.commit()
 
         return jsonify({
-            "message": "City added to favorites successfully",
-            "city": {
-                "id": city.id,
-                "name": city.name,
-                "country": city.country,
-                "coordinates": {
-                    "latitude": city.latitude,
-                    "longitude": city.longitude
-                }
-            }
+            "message": "City added to favorites",
+            "city": city.to_dict()
         }), 201
 
     except Exception as e:
         db.session.rollback()
-        return jsonify({
-            "error": "Failed to add favorite city",
-            "details": str(e)
-        }), 500
+        return jsonify({"error": str(e)}), 500
 
 @bp.route('/users/<int:user_id>/favorites/<int:city_id>', methods=['DELETE'])
-@admin_required
+@jwt_required()
 def remove_favorite_city(user_id, city_id):
-    """Удаление города из избранного у конкретного пользователя по ID города"""
+    """Удаление города из избранного (только для своего аккаунта)"""
     try:
-        # Проверяем существование пользователя
-        user = Users.query.get(user_id)
-        if not user:
-            return jsonify({"error": "User not found"}), 404
+        # Проверка прав доступа с приведением типов
+        current_user_id = int(get_jwt_identity())  # Преобразуем строку в число
+        if current_user_id != user_id:
+            return jsonify({"error": "You can only remove favorites from your own account"}), 403
 
-        # Проверяем существование города
-        city = Cities.query.get(city_id)
-        if not city:
-            return jsonify({"error": f"City with ID {city_id} not found"}), 404
-
-        # Ищем запись в избранном
+        # Ищем связь пользователя с городом
         favorite = FavoriteCities.query.filter_by(
             user_id=user_id,
             city_id=city_id
         ).first()
 
         if not favorite:
-            return jsonify({
-                "error": "City not in user's favorites",
-                "details": {
-                    "user_id": user_id,
-                    "city_id": city_id,
-                    "city_name": city.name
-                }
-            }), 404
+            return jsonify({"error": "Favorite city not found"}), 404
 
-        # Удаляем из избранного
+        # Удаляем
         db.session.delete(favorite)
         db.session.commit()
 
         return jsonify({
-            "message": "City removed from favorites successfully",
-            "removed_favorite": {
-                "user_id": user_id,
-                "city": {
-                    "id": city.id,
-                    "name": city.name,
-                    "country": city.country
-                }
+            "message": "City removed from favorites",
+            "removed_city": {
+                "city_id": city_id,
+                "user_id": user_id
             }
         }), 200
 
+    except ValueError:
+        return jsonify({"error": "Invalid user ID format in token"}), 400
     except Exception as e:
         db.session.rollback()
-        return jsonify({
-            "error": "Failed to remove favorite city",
-            "details": str(e)
-        }), 500
+        return jsonify({"error": str(e)}), 500
 
 @bp.route('/weather/<int:city_id>', methods=['GET'])
 def get_city_weather(city_id):
@@ -606,13 +527,13 @@ def update_hourly_weather(city_id):
 def cleanup_old_weather_data():
     """
     Удаляет устаревшие записи о погоде:
-    - Старше 7 дней для всех городов
+    - Старше 1 день для всех городов
     - Оставляет минимум 24 записи для каждого города
     Использует datetime.now(timezone.utc) вместо устаревшего utcnow()
     """
     try:
         # Определяем временную границу (7 дней назад)
-        seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
+        seven_days_ago = datetime.now(timezone.utc) - timedelta(days=1)
 
         # Сначала находим города, у которых больше 24 записей
         cities_to_clean = db.session.query(

@@ -37,7 +37,7 @@ def create_app():
 
     # JWT Configuration
     app.config['JWT_SECRET_KEY'] = 'your-extra-super-secret-key-here'  # Должен быть надежным!
-    app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(days=1)
+    app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=5)
     app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(days=30)
     app.config['JWT_TOKEN_LOCATION'] = ['headers']
     app.config['JWT_HEADER_NAME'] = 'Authorization'

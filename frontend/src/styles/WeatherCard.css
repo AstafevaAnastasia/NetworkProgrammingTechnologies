@@ -2,10 +2,82 @@
   border: 1px solid #ddd;
   border-radius: 8px;
   padding: 16px;
-  background: #f9f9f9;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  transition: transform 0.2s;
 }
 
-.weather-card h3 {
-  margin-top: 0;
+.weather-card:hover {
+  transform: translateY(-2px);
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+
+.card-header h3 {
+  margin: 0;
   color: #333;
+  font-size: 1.2rem;
+  flex-grow: 1;
+}
+
+.favorite-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  margin-left: 8px;
+  color: #666;
+  transition: all 0.2s;
+}
+
+.favorite-btn:hover {
+  transform: scale(1.1);
+}
+
+.weather-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 10px 0;
+}
+
+.temp {
+  font-size: 1.8rem;
+  font-weight: bold;
+  color: #333;
+}
+
+.description {
+  text-transform: capitalize;
+  color: #666;
+}
+
+.weather-details {
+  margin-top: 10px;
+  font-size: 0.9rem;
+  color: #555;
+}
+
+.weather-details p {
+  margin: 4px 0;
+}
+
+.timestamp {
+  color: #999;
+  font-size: 0.8rem;
+  margin-top: 8px !important;
+}
+
+.home h2 {
+  margin: 20px 0 10px;
+  color: #333;
+  font-size: 1.5rem;
 }

@@ -14,61 +14,34 @@ function Auth({ setUser }) {
     setError(null);
 
     try {
-      if (isLogin) {
-        // Логика входа
-        const response = await fetch('http://127.0.0.1:5000/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            [formData.emailOrUsername.includes('@') ? 'email' : 'username']: formData.emailOrUsername,
+      const endpoint = isLogin ? '/login' : '/register';
+      const body = isLogin
+        ? {
+            [formData.emailOrUsername.includes('@') ? 'email' : 'username']:
+              formData.emailOrUsername,
             password: formData.password
-          }),
-        });
-
-        const result = await response.json();
-        if (!response.ok) throw new Error(result.error || 'Login failed');
-
-        // Сохраняем данные после входа
-        localStorage.setItem('access_token', result.access_token);
-        localStorage.setItem('refresh_token', result.refresh_token);
-        localStorage.setItem('user', JSON.stringify(result.user));
-        setUser(result.user);
-        navigate('/');
-      } else {
-        // Логика регистрации
-        const registerResponse = await fetch('http://127.0.0.1:5000/users', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+          }
+        : {
             username: formData.username,
             email: formData.email,
             password: formData.password
-          }),
-        });
+          };
 
-        const registerResult = await registerResponse.json();
-        if (!registerResponse.ok) throw new Error(registerResult.error || 'Registration failed');
+      const response = await fetch(`http://127.0.0.1:5000${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
 
-        // Автоматический вход после регистрации
-        const loginResponse = await fetch('http://127.0.0.1:5000/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            email: formData.email,
-            password: formData.password
-          }),
-        });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Authentication failed');
 
-        const loginResult = await loginResponse.json();
-        if (!loginResponse.ok) throw new Error(loginResult.error || 'Auto-login failed');
-
-        // Сохраняем данные после автоматического входа
-        localStorage.setItem('access_token', loginResult.access_token);
-        localStorage.setItem('refresh_token', loginResult.refresh_token);
-        localStorage.setItem('user', JSON.stringify(loginResult.user));
-        setUser(loginResult.user);
-        navigate('/');
-      }
+      // Сохраняем данные после успешной аутентификации
+      localStorage.setItem('access_token', result.access_token);
+      localStorage.setItem('refresh_token', result.refresh_token);
+      localStorage.setItem('user', JSON.stringify(result.user));
+      setUser(result.user);
+      navigate('/');
     } catch (err) {
       setError(err.message || 'Authentication error');
     } finally {

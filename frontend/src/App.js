@@ -9,7 +9,6 @@ import './styles/main.css';
 function App() {
   const [user, setUser] = useState(null);
 
-  // Проверка аутентификации при загрузке
   useEffect(() => {
     const checkAuth = async () => {
       try {
@@ -17,7 +16,6 @@ function App() {
         const userData = localStorage.getItem('user');
 
         if (token && userData) {
-          // Можно добавить запрос к /protected для проверки токена
           setUser(JSON.parse(userData));
         }
       } catch (e) {
@@ -37,7 +35,7 @@ function App() {
           <Route path="/auth" element={<Auth setUser={setUser} />} />
           <Route
             path="/profile"
-            element={user ? <Profile user={user} /> : <Auth setUser={setUser} />}
+            element={<Profile user={user} setUser={setUser} />}
           />
         </Routes>
       </div>

@@ -4,13 +4,14 @@ import weatherService from '../api/weatherService';
 import { authFetch } from '../api/http';
 import '../styles/main.css';
 
-const DEFAULT_CITY_IDS = [1, 2]; // Только 1 и 2 как просили
-
 function Home({ user }) {
   const [favoriteWeather, setFavoriteWeather] = useState([]);
-  const [popularWeather, setPopularWeather] = useState([]);
+  const [availableWeather, setAvailableWeather] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // Дефолтные города, которые точно есть в базе
+  const DEFAULT_CITY_IDS = [1, 2, 3];
 
   useEffect(() => {
     const fetchData = async () => {
@@ -18,14 +19,54 @@ function Home({ user }) {
         setLoading(true);
         setError(null);
 
-        // Всегда загружаем популярные города
-        const popularData = await weatherService.getMultipleCities(DEFAULT_CITY_IDS);
-        setPopularWeather(popularData);
+        // 1. Загружаем погоду для дефолтных городов
+        const defaultWeather = await weatherService.getMultipleCities(DEFAULT_CITY_IDS);
 
-        // Загружаем избранные если пользователь авторизован
+        // 2. Если пользователь авторизован, загружаем его избранные города
+        let combinedWeather = [...defaultWeather];
         if (user) {
-          await fetchFavorites();
+          try {
+            const favResponse = await authFetch(`/users/${user.id}/favorites/weather`);
+            if (favResponse.ok) {
+              const favData = await favResponse.json();
+              const favCities = favData.favorite_cities_weather || [];
+
+              // Добавляем уникальные города из избранного
+              favCities.forEach(fav => {
+                const exists = combinedWeather.some(city => city.id === fav.city.id);
+                if (!exists) {
+                  combinedWeather.push({
+                    id: fav.city.id,
+                    city_id: fav.city.id,
+                    city: fav.city.name,
+                    temp: Math.round(fav.weather.temperature),
+                    description: fav.weather.description,
+                    humidity: fav.weather.humidity,
+                    wind_speed: fav.weather.wind_speed,
+                    timestamp: fav.weather.timestamp
+                  });
+                }
+              });
+
+              // Сохраняем отдельно избранные города для секции "Избранное"
+              const formattedFavorites = favCities.map(item => ({
+                id: item.city.id,
+                city_id: item.city.id,
+                city: item.city.name,
+                temp: Math.round(item.weather.temperature),
+                description: item.weather.description,
+                humidity: item.weather.humidity,
+                wind_speed: item.weather.wind_speed,
+                timestamp: item.weather.timestamp
+              }));
+              setFavoriteWeather(formattedFavorites);
+            }
+          } catch (favError) {
+            console.error('Ошибка загрузки избранных:', favError);
+          }
         }
+
+        setAvailableWeather(combinedWeather);
       } catch (err) {
         console.error('Ошибка при загрузке данных:', err);
         setError(err.message);
@@ -37,31 +78,9 @@ function Home({ user }) {
     fetchData();
   }, [user]);
 
-  const fetchFavorites = async () => {
-    try {
-      const response = await authFetch(`/users/${user.id}/favorites/weather`);
-      if (!response.ok) throw new Error('Failed to fetch favorites');
-
-      const data = await response.json();
-      const formattedData = (data.favorite_cities_weather || []).map(item => ({
-        id: item.city.id,
-        city_id: item.city.id,
-        city: item.city.name,
-        temp: Math.round(item.weather.temperature),
-        description: item.weather.description,
-        humidity: item.weather.humidity,
-        wind_speed: item.weather.wind_speed,
-        timestamp: item.weather.timestamp
-      }));
-
-      setFavoriteWeather(formattedData);
-    } catch (err) {
-      console.error('Ошибка при загрузке избранных:', err);
-      throw err;
-    }
-  };
-
   const toggleFavorite = async (cityId) => {
+    if (!user) return;
+
     try {
       const isFavorite = favoriteWeather.some(city => city.id === cityId);
 
@@ -80,7 +99,21 @@ function Home({ user }) {
       }
 
       // Обновляем список избранных
-      await fetchFavorites();
+      const favResponse = await authFetch(`/users/${user.id}/favorites/weather`);
+      if (favResponse.ok) {
+        const favData = await favResponse.json();
+        const formattedFavorites = (favData.favorite_cities_weather || []).map(item => ({
+          id: item.city.id,
+          city_id: item.city.id,
+          city: item.city.name,
+          temp: Math.round(item.weather.temperature),
+          description: item.weather.description,
+          humidity: item.weather.humidity,
+          wind_speed: item.weather.wind_speed,
+          timestamp: item.weather.timestamp
+        }));
+        setFavoriteWeather(formattedFavorites);
+      }
     } catch (err) {
       console.error('Ошибка при обновлении избранных:', err);
       setError(err.message);
@@ -108,13 +141,13 @@ function Home({ user }) {
         </>
       )}
 
-      <h2>Популярные города</h2>
+      <h2>Доступные города</h2>
       <div className="weather-grid">
-        {popularWeather.map((data) => {
+        {availableWeather.map((data) => {
           const isFavorite = user && favoriteWeather.some(city => city.id === data.id);
           return (
             <WeatherCard
-              key={`pop-${data.id}`}
+              key={`city-${data.id}`}
               data={data}
               onToggleFavorite={user ? toggleFavorite : null}
               isFavorite={isFavorite}

@@ -588,15 +588,21 @@ def cleanup_old_weather_data():
             "details": str(e)
         }), 500
 
-
 # Регистрация пользователя
 @bp.route('/register', methods=['POST'])
 def register():
+    import re  # Импортируем модуль для работы с регулярными выражениями
+
     data = request.get_json()
     required_fields = ['email', 'password', 'username']
 
     if not data or not all(key in data for key in required_fields):
         return jsonify({"error": "Missing required fields"}), 400
+
+    # Валидация email
+    email_regex = r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$'
+    if not re.match(email_regex, data['email']):
+        return jsonify({"error": "Invalid email format"}), 400
 
     if Users.query.filter_by(email=data['email']).first():
         return jsonify({"error": "Email already registered"}), 400

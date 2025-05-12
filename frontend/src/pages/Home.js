@@ -11,7 +11,7 @@ function Home({ user }) {
   const [error, setError] = useState(null);
 
   // Дефолтные города, которые точно есть в базе
-  const DEFAULT_CITY_IDS = [1, 2, 3];
+  const DEFAULT_CITY_IDS = [3, 5, 6, 7, 8];
 
   useEffect(() => {
     const fetchData = async () => {

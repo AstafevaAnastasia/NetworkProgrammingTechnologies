@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import weatherService from '../api/weatherService';
 import { authFetch, clearAuth } from '../api/http';
 import '../styles/main.css';
 
@@ -10,6 +9,7 @@ function Profile({ user, setUser }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [updateError, setUpdateError] = useState(null);
   const [updateSuccess, setUpdateSuccess] = useState(null);
+  const [loadingStatus, setLoadingStatus] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -20,10 +20,77 @@ function Profile({ user, setUser }) {
 
   const fetchServerTime = async () => {
     try {
-      const time = await weatherService.getServerTime();
-      setServerTime(time);
+      const response = await authFetch('/server/time');
+      const data = await response.json();
+      setServerTime(data.time);
     } catch (error) {
       console.error('Failed to get server time:', error);
+    }
+  };
+
+  const handleUpdateHourlyWeather = async (cityId) => {
+    try {
+      setUpdateError(null);
+      setUpdateSuccess(null);
+      setLoadingStatus('Обновление данных о погоде...');
+
+      const response = await authFetch(`/weather/update_hourly/${cityId}`, {
+        method: 'POST'
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        setUpdateSuccess(
+          `Данные о погоде для города ${result.city_name} (ID: ${result.city_id}) успешно обновлены. ` +
+          `Добавлено ${result.total_added} записей за период с ${new Date(result.time_range.start).toLocaleString()} ` +
+          `по ${new Date(result.time_range.end).toLocaleString()}`
+        );
+      } else {
+        throw new Error(result.error || 'Не удалось обновить данные о погоде');
+      }
+    } catch (error) {
+      console.error('Weather update error:', error);
+      setUpdateError(error.message);
+    } finally {
+      setLoadingStatus(null);
+      setTimeout(() => {
+        setUpdateSuccess(null);
+        setUpdateError(null);
+      }, 5000);
+    }
+  };
+
+  const handleCleanupWeather = async () => {
+    try {
+      setUpdateError(null);
+      setUpdateSuccess(null);
+      setLoadingStatus('Идет очистка старых данных...');
+
+      const response = await authFetch('/weather/cleanup', {
+        method: 'DELETE'
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        setUpdateSuccess(
+          `Очистка данных завершена. Удалено ${result.details.records_deleted} записей ` +
+          `для ${result.details.cities_processed} городов. ` +
+          `Удалены данные старше ${new Date(result.details.cutoff_date).toLocaleString()}`
+        );
+      } else {
+        throw new Error(result.error || 'Не удалось выполнить очистку данных');
+      }
+    } catch (error) {
+      console.error('Cleanup error:', error);
+      setUpdateError(error.message);
+    } finally {
+      setLoadingStatus(null);
+      setTimeout(() => {
+        setUpdateSuccess(null);
+        setUpdateError(null);
+      }, 5000);
     }
   };
 
@@ -31,6 +98,7 @@ function Profile({ user, setUser }) {
     try {
       setUpdateError(null);
       setUpdateSuccess(null);
+      setLoadingStatus('Обновление данных...');
 
       const response = await authFetch('/update-account', {
         method: 'POST',
@@ -48,35 +116,32 @@ function Profile({ user, setUser }) {
           setUser(result.user);
         }
         setUpdateSuccess('Данные успешно обновлены');
-        setTimeout(() => setUpdateSuccess(null), 3000);
       } else {
         throw new Error(result.error || 'Не удалось обновить данные');
       }
     } catch (error) {
       console.error('Update failed:', error);
       setUpdateError(error.message);
-      setTimeout(() => setUpdateError(null), 3000);
+    } finally {
+      setLoadingStatus(null);
+      setTimeout(() => {
+        setUpdateSuccess(null);
+        setUpdateError(null);
+      }, 3000);
     }
   };
 
   const handleSearchUsers = async () => {
     try {
-      const results = await weatherService.searchUsers(searchTerm, '');
+      setLoadingStatus('Поиск пользователей...');
+      const response = await authFetch(`/users/search?query=${searchTerm}`);
+      const results = await response.json();
       setSearchResults(results);
     } catch (error) {
       console.error('Search failed:', error);
       setUpdateError('Ошибка при поиске пользователей');
-      setTimeout(() => setUpdateError(null), 3000);
-    }
-  };
-
-  const handleCleanupWeather = async () => {
-    try {
-      const result = await weatherService.cleanupOldWeatherData();
-      setUpdateSuccess(`Очистка данных выполнена: ${result.message}`);
-      setTimeout(() => setUpdateSuccess(null), 3000);
-    } catch (error) {
-      setUpdateError('Ошибка при очистке данных');
+    } finally {
+      setLoadingStatus(null);
       setTimeout(() => setUpdateError(null), 3000);
     }
   };
@@ -85,12 +150,24 @@ function Profile({ user, setUser }) {
     const cityName = prompt('Введите название города:');
     if (cityName) {
       try {
-        const result = await weatherService.addCity(cityName);
+        setLoadingStatus('Добавление города...');
+        const response = await authFetch('/cities', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ name: cityName })
+        });
+        const result = await response.json();
         setUpdateSuccess(`Город добавлен: ${result.city.name}`);
-        setTimeout(() => setUpdateSuccess(null), 3000);
       } catch (error) {
         setUpdateError('Не удалось добавить город');
-        setTimeout(() => setUpdateError(null), 3000);
+      } finally {
+        setLoadingStatus(null);
+        setTimeout(() => {
+          setUpdateSuccess(null);
+          setUpdateError(null);
+        }, 3000);
       }
     }
   };
@@ -121,6 +198,7 @@ function Profile({ user, setUser }) {
 
       {updateError && <div className="error-message">{updateError}</div>}
       {updateSuccess && <div className="success-message">{updateSuccess}</div>}
+      {loadingStatus && <div className="loading-message">{loadingStatus}</div>}
 
       <div className="profile-info">
         <div className="info-card">
@@ -137,6 +215,12 @@ function Profile({ user, setUser }) {
             <span className="info-label">Роль:</span>
             <span className="info-value">{user?.role || 'user'}</span>
           </div>
+          {serverTime && (
+            <div className="info-row">
+              <span className="info-label">Время сервера:</span>
+              <span className="info-value">{serverTime}</span>
+            </div>
+          )}
         </div>
 
         <div className="settings-card">
@@ -150,6 +234,7 @@ function Profile({ user, setUser }) {
                   handleUpdateAccount({ username: newUsername });
                 }
               }}
+              disabled={!!loadingStatus}
             >
               Изменить имя пользователя
             </button>
@@ -161,6 +246,7 @@ function Profile({ user, setUser }) {
                   handleUpdateAccount({ email: newEmail });
                 }
               }}
+              disabled={!!loadingStatus}
             >
               Изменить email
             </button>
@@ -176,12 +262,14 @@ function Profile({ user, setUser }) {
                   });
                 }
               }}
+              disabled={!!loadingStatus}
             >
               Изменить пароль
             </button>
             <button
               className="settings-button logout-button"
               onClick={handleLogout}
+              disabled={!!loadingStatus}
             >
               Выйти из аккаунта
             </button>
@@ -200,10 +288,12 @@ function Profile({ user, setUser }) {
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="search-input"
+              disabled={!!loadingStatus}
             />
             <button
               className="search-button"
               onClick={handleSearchUsers}
+              disabled={!!loadingStatus}
             >
               Поиск
             </button>
@@ -214,7 +304,7 @@ function Profile({ user, setUser }) {
                 <ul>
                   {searchResults.map(user => (
                     <li key={user.id}>
-                      {user.username} ({user.email})
+                      {user.username} ({user.email}) - {user.role}
                     </li>
                   ))}
                 </ul>
@@ -226,14 +316,28 @@ function Profile({ user, setUser }) {
             <button
               className="admin-button"
               onClick={handleAddCity}
+              disabled={!!loadingStatus}
             >
-              Добавить город
+              {loadingStatus === 'Добавление города...' ? 'Добавление...' : 'Добавить город'}
+            </button>
+            <button
+              className="admin-button"
+              onClick={() => {
+                const cityId = prompt('Введите ID города для обновления погоды:');
+                if (cityId) {
+                  handleUpdateHourlyWeather(cityId);
+                }
+              }}
+              disabled={!!loadingStatus}
+            >
+              {loadingStatus === 'Обновление данных о погоде...' ? 'Обновление...' : 'Обновить погоду для города'}
             </button>
             <button
               className="admin-button"
               onClick={handleCleanupWeather}
+              disabled={!!loadingStatus}
             >
-              Очистить старые данные
+              {loadingStatus === 'Идет очистка старых данных...' ? 'Очистка...' : 'Очистить старые данные'}
             </button>
           </div>
         </div>

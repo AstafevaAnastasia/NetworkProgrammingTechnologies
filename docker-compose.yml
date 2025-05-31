@@ -2,7 +2,12 @@ services:
   db:
     build:
       context: .
-      dockerfile: backend/databases/Dockerfile
+      dockerfile: backend/src/databases/Dockerfile(db)
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U myuser -d mydatabase" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     environment:
       POSTGRES_DB: mydatabase
       POSTGRES_USER: myuser
@@ -12,24 +17,37 @@ services:
     ports:
       - "5432:5432"
 
-  python:
-    container_name: python
-    image: python:3.12
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./:/var/www
-    tty: true
-    working_dir: /var/www
+  backend:
+    container_name: backend
     build:
       context: .
       dockerfile: backend/Dockerfile
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./backend:/var/www/backend
     environment:
-      FLASK_APP: backend/src/run.py
-      FLASK_ENV: development
       DATABASE_URL: postgresql://myuser:mypassword@db:5432/mydatabase
+      API_BASE_URL: http://backend:5000
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+
+  frontend:
+    container_name: frontend
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile(db)
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/var/www/frontend
+      - /var/www/frontend/node_modules
+    depends_on:
+      - backend
+    environment:
+      - NODE_ENV=development
+      - CHOKIDAR_USEPOLLING=true # Для hot-reload в Docker
 
 volumes:
   pgdata:
